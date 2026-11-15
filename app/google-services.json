@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "811535471789",
+    "project_id": "cnhs-portal-6861a",
+    "storage_bucket": "cnhs-portal-6861a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:811535471789:android:040b29808169ac8573e224",
+        "android_client_info": {
+          "package_name": "io.cnhs.portal"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC2q4EnBNNTQLVRhtNHpuUrHTXiQak8IGc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
