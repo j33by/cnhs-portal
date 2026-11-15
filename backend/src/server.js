@@ -7,6 +7,7 @@ const { buildEmployeeForm } = require('./services/xlsWriter');
 const { notify } = require('./services/notify');
 const mountClasses = require('./routes/classes');
 const { cleanProfile } = require('./services/profile');
+const { findConflicts, parseSlots } = require('./services/slots');
 
 const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 const app = express(); app.use(cors()); app.use(express.json({ limit: '2mb' }));
@@ -31,7 +32,7 @@ const curYear = async () => (await sb.from('school_years').select('*').eq('is_cu
 // so they can never collide with someone already enrolled there. Existing device IDs are attached with /api/device/link.
 const freeBioId = async () => {
   let max = 0;
-  for (const [t, c] of [['students', 'biometric_id'], ['teachers', 'biometric_id'], ['device_people', 'biometric_id'], ['attendance', 'biometric_id']]) {
+  for (const [t, c] of [['students', 'biometric_id'], ['device_people', 'biometric_id'], ['attendance', 'biometric_id']]) {
     const { data } = await sb.from(t).select(c).not(c, 'is', null).order(c, { ascending: false }).limit(1); if (data?.[0]) max = Math.max(max, data[0][c]); }
   return max + 1;
 };
@@ -64,7 +65,7 @@ app.post('/api/onboarding/teacher', wrap(async (q, r) => {
   await sb.from('profiles').upsert({ id, role: 'teacher', email: q.user.email, full_name: `${b.first_name} ${b.last_name}`.trim(), photo_url: b.photo_url, onboarded: false });
   await sb.from('teachers').delete().eq('id', id);
   const { error } = await sb.from('teachers').insert({ id, teacher_no: no, first_name: b.first_name.trim(), last_name: b.last_name.trim(), birthdate: b.birthdate || null, address: b.address,
-    contact_no: b.contact_no, grade_levels: b.grade_levels, biometric_id: await freeBioId() });
+    contact_no: b.contact_no, grade_levels: b.grade_levels });
   if (error) throw error;
   const { error: e2 } = await sb.from('teacher_subjects').insert(subjects.map(x => ({ ...x, teacher_id: id })));
   if (e2) { await sb.from('teachers').delete().eq('id', id); throw e2; }
@@ -138,13 +139,23 @@ app.post('/api/bind/:id/review', teacherOnly, wrap(async (q, r) => {
 // ============ Teachers manage advisory / students / schedules ============
 app.post('/api/sections', teacherOnly, wrap(async (q, r) => {
   const y = await curYear(); const { grade_level, name, homeroom } = q.body; if (!grade_level || !name) throw bad('Grade level and section name required');
+  const { data: same } = await sb.from('sections').select('id,name,adviser_id,teachers:adviser_id(first_name,last_name)').eq('school_year_id', y.id).eq('grade_level', grade_level);
+  const dup = (same || []).find(x => String(x.name).trim().toLowerCase() === String(name).trim().toLowerCase());
+  if (dup) {                                                                  // section already exists (created by a class teacher): become its adviser
+    if (dup.adviser_id && dup.adviser_id !== q.user.id) throw bad(`Grade ${grade_level} - ${dup.name} already has an adviser (${dup.teachers?.first_name || ''} ${dup.teachers?.last_name || ''}).`.replace(' ()', '.'), 409);
+    const { data: up, error: ue } = await sb.from('sections').update({ adviser_id: q.user.id, homeroom: homeroom || null }).eq('id', dup.id).select().single(); if (ue) throw ue; return r.json(up);
+  }
   const { data: used } = await sb.from('sections').select('biometric_dept_no'); const taken = new Set(used.map(u => u.biometric_dept_no));
   let dept = 1; while (taken.has(dept)) dept++; if (dept > 16) throw bad('The biometric device supports 16 departments');
   const { data, error } = await sb.from('sections').insert({ school_year_id: y.id, grade_level, name, homeroom, adviser_id: q.user.id, biometric_dept_no: dept }).select().single();
   if (error) throw error; r.json(data);
 }));
 const mySection = async (q) => { const { data } = await sb.from('sections').select('*').eq('id', q.params.id).single();
-  if (!data) throw bad('Section not found', 404); if (data.adviser_id !== q.user.id) throw bad('Only the adviser can change this section', 403); return data; };
+  if (!data) throw bad('Section not found', 404); if (data.adviser_id !== q.user.id) {
+    // a section nobody advises can be managed by a teacher who teaches in it
+    const { count } = data.adviser_id ? { count: 0 } : await sb.from('section_subjects').select('section_id', { count: 'exact', head: true }).match({ section_id: data.id, teacher_id: q.user.id });
+    if (!count) throw bad('Only the adviser can change this section', 403);
+  } return data; };
 app.patch('/api/sections/:id', teacherOnly, wrap(async (q, r) => { await mySection(q); const { name, homeroom } = q.body;
   const { data, error } = await sb.from('sections').update({ name, homeroom }).eq('id', q.params.id).select().single(); if (error) throw error; r.json(data); }));
 app.delete('/api/sections/:id', teacherOnly, wrap(async (q, r) => { await mySection(q); await sb.from('students').update({ section_id: null }).eq('section_id', q.params.id);
@@ -164,18 +175,22 @@ app.delete('/api/students/:id', teacherOnly, wrap(async (q, r) => { await advise
 
 app.post('/api/sections/:id/subjects', teacherOnly, wrap(async (q, r) => {          // assign a teacher to a subject of this section
   await mySection(q); const { code, name, teacher_id } = q.body;
-  const { data: sub } = await sb.from('subjects').upsert({ code, name }, { onConflict: 'code' }).select().single();
+  await sb.from('subjects').upsert({ code, name }, { onConflict: 'code', ignoreDuplicates: true });
+  const { data: sub } = await sb.from('subjects').select().eq('code', code).single();
   await sb.from('section_subjects').upsert({ section_id: q.params.id, subject_id: sub.id, teacher_id }, { onConflict: 'section_id,subject_id' });
   if (teacher_id) await notify(sb, [teacher_id], { kind: 'section', title: 'New teaching assignment', body: `You were assigned ${name}.` }); r.json({ ok: true }); }));
 app.post('/api/sections/:id/schedules', teacherOnly, wrap(async (q, r) => {
   await mySection(q); const b = q.body; if (!(b.start_time < b.end_time)) throw bad('End time must be after start time');
+  const slotClash = await findConflicts(sb, { teacherId: b.teacher_id, sectionId: q.params.id, rows: [{ day_of_week: b.day_of_week, start: String(b.start_time).slice(0, 5), end: String(b.end_time).slice(0, 5) }] });
+  if (slotClash) throw bad(slotClash, 409);
   const { data: clash } = await sb.from('schedules').select('id').eq('section_id', q.params.id).eq('day_of_week', b.day_of_week).lt('start_time', b.end_time).gt('end_time', b.start_time);
   if (clash?.length) throw bad('That time overlaps another class in this section', 409);
   const { data, error } = await sb.from('schedules').insert({ section_id: q.params.id, subject_id: b.subject_id, teacher_id: b.teacher_id, day_of_week: b.day_of_week, start_time: b.start_time, end_time: b.end_time, room: b.room }).select().single();
   if (error) throw error; r.json(data); }));
 app.delete('/api/schedules/:id', teacherOnly, wrap(async (q, r) => {
-  const { data: s } = await sb.from('schedules').select('section_id,sections(adviser_id)').eq('id', q.params.id).single();
-  if (!s) throw bad('Schedule not found', 404); if (s.sections.adviser_id !== q.user.id) throw bad('Only the adviser can change this schedule', 403);
+  const { data: s } = await sb.from('schedules').select('section_id,teacher_id,sections(adviser_id)').eq('id', q.params.id).single();
+  if (!s) throw bad('Schedule not found', 404);
+  if (s.sections.adviser_id !== q.user.id && s.teacher_id !== q.user.id) throw bad('Only the adviser or the class teacher can change this schedule', 403);
   await sb.from('schedules').delete().eq('id', q.params.id); r.json({ ok: true }); }));
 
 mountClasses(app, { sb, wrap, bad, teacherOnly, curYear });   // class record, subject + homeroom attendance, grades
@@ -189,29 +204,27 @@ app.post('/api/usb/ingest', teacherOnly, up.fields([{ name: 'logs', maxCount: 1 
   r.json(out); }));
 // Attach a device ID that already exists on the terminal to a student or teacher (or detach it)
 app.post('/api/device/link', teacherOnly, wrap(async (q, r) => {
-  const { biometric_id, kind, id } = q.body; if (!Number.isInteger(biometric_id) || biometric_id < 1) throw bad('Invalid device ID');
-  const table = kind === 'teacher' ? 'teachers' : 'students';
+  const { biometric_id, id } = q.body; if (!Number.isInteger(biometric_id) || biometric_id < 1) throw bad('Invalid device ID');
   const { data: used } = await sb.from('students').select('id').eq('biometric_id', biometric_id).neq('id', id || '00000000-0000-0000-0000-000000000000');
-  const { data: usedT } = await sb.from('teachers').select('id').eq('biometric_id', biometric_id).neq('id', id || '00000000-0000-0000-0000-000000000000');
-  if (used?.length || usedT?.length) throw bad('That device ID is already linked to someone else');
-  const { data: me, error } = await sb.from(table).update({ biometric_id }).eq('id', id).select('id,first_name,section_id,sections(name)').single(); if (error) throw error;
-  if (kind !== 'teacher') await relinkPunches(sb, me, biometric_id);
-  else await sb.from('attendance').update({ teacher_id: id }).eq('biometric_id', biometric_id).is('teacher_id', null);
-  r.json({ ok: true });
+  if (used?.length) throw bad('That device ID is already linked to another student');
+  const { data: me, error } = await sb.from('students').update({ biometric_id }).eq('id', id).select('id,first_name,section_id,sections(name)').single(); if (error) throw error;
+  await relinkPunches(sb, me, biometric_id); r.json({ ok: true });
 }));
+app.post('/api/device/ignore', teacherOnly, wrap(async (q, r) => {           // IDs on the terminal that are not students (teachers, staff)
+  await sb.from('device_people').update({ ignored: q.body.ignored !== false }).eq('biometric_id', q.body.biometric_id); r.json({ ok: true }); }));
 app.post('/api/device/unlink', teacherOnly, wrap(async (q, r) => {
-  const { kind, id } = q.body; await sb.from(kind === 'teacher' ? 'teachers' : 'students').update({ biometric_id: null }).eq('id', id); r.json({ ok: true }); }));
+  await sb.from('students').update({ biometric_id: null }).eq('id', q.body.id); r.json({ ok: true }); }));
 app.get('/api/usb/state', teacherOnly, wrap(async (_q, r) => r.json((await sb.from('usb_sync_state').select('*').eq('id', 1).single()).data)));
 app.get('/api/usb/employee-form', teacherOnly, wrap(async (_q, r) => {
-  const [{ data: st }, { data: te }, { data: se }, { data: sc }] = await Promise.all([
+  const [{ data: st }, { data: se }, { data: sc }] = await Promise.all([
     sb.from('students').select('biometric_id,first_name,last_name,sections(biometric_dept_no)').eq('status', 'enrolled').not('biometric_id', 'is', null),
-    sb.from('teachers').select('biometric_id,first_name,last_name').not('biometric_id', 'is', null), sb.from('sections').select('name,biometric_dept_no'),
+    sb.from('sections').select('name,biometric_dept_no'),
     sb.from('schedules').select('day_of_week,start_time,end_time,sections(biometric_dept_no)')]);
   const { data: dev } = await sb.from('device_people').select('*');
-  const linked = new Set([...st, ...te].map(x => x.biometric_id));
+  const linked = new Set(st.map(x => x.biometric_id));
   const people = [...(dev || []).filter(d => !linked.has(d.biometric_id)).map(d => ({ biometric_id: d.biometric_id, name: (d.name || '').slice(0, 24), dept_no: d.dept_no })),
     ...st.map(s => ({ biometric_id: s.biometric_id, name: `${s.first_name} ${s.last_name}`.slice(0, 24), dept_no: s.sections?.biometric_dept_no || null })),
-    ...te.map(t => ({ biometric_id: t.biometric_id, name: `${t.first_name} ${t.last_name}`.slice(0, 24), dept_no: null }))].sort((a, b) => a.biometric_id - b.biometric_id);
+    ].sort((a, b) => a.biometric_id - b.biometric_id);
   const { buffer, shifts } = buildEmployeeForm({ people, sections: se.map(s => ({ dept_no: s.biometric_dept_no, name: s.name })),
     slots: sc.filter(s => s.sections).map(s => ({ dept_no: s.sections.biometric_dept_no, day_of_week: s.day_of_week, start: s.start_time.slice(0, 5), end: s.end_time.slice(0, 5) })), start: new Date() });
   const { data: stt } = await sb.from('usb_sync_state').select('version').eq('id', 1).single();

@@ -16,8 +16,8 @@ class AdvisoryScreen extends StatelessWidget {
   @override
   Widget build(BuildContext c) => Scaffold(
         floatingActionButton: FloatingActionButton.extended(icon: const Icon(Icons.add), label: const Text('New advisory'), onPressed: () async {
-          final g = await _ask(c, 'Grade level (7-12)', 'Grade'); if (g == null || !c.mounted) return; final n = await _ask(c, 'Section name', 'e.g. Rizal'); if (n == null) return;
-          _run(c, Api.post('/api/sections', {'grade_level': int.tryParse(g), 'name': n}));
+          final g = await _ask(c, 'Grade level (7-12)', 'Grade'); if (g == null || !c.mounted) return; final n = await _ask(c, 'Section name', 'e.g. Rizal'); if (n == null || !c.mounted) return; final rm = await _ask(c, 'Room (optional)', 'e.g. Room 12'); if (rm == null) return;
+          _run(c, Api.post('/api/sections', {'grade_level': int.tryParse(g), 'name': n, 'homeroom': rm.isEmpty ? null : rm}));
         }),
         body: StreamBuilder<List<Map<String, dynamic>>>(
           stream: sb.from('sections').stream(primaryKey: ['id']).eq('adviser_id', teacherId),

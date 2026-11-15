@@ -113,7 +113,7 @@ class _ProfileTabState extends State<ProfileTab> {
         Card(child: Column(children: [
           _info(Icons.email, 'Google account', '${prof!['email'] ?? ''}'),
           if (role == 'student') _info(Icons.class_, 'Grade & section', sec == null ? 'Grade ${row!['grade_level']} · waiting for your adviser to add you' : 'Grade ${sec['grade_level']} · ${sec['name']}'),
-          if (role != 'parent') _info(Icons.fingerprint, 'Biometric device ID', '${row!['biometric_id'] ?? 'not assigned'}'),
+          if (role == 'student') _info(Icons.fingerprint, 'Biometric device ID', '${row!['biometric_id'] ?? 'not assigned'}'),
         ])),
         const SizedBox(height: 12),
         Row(children: [

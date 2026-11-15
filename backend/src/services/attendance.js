@@ -35,9 +35,9 @@ async function ingestLogs(sb, text) {
   const names = new Map(); for (const p of punches) if (p.name) names.set(p.biometric_id, p.name);
   await sb.from('device_people').upsert([...new Set(punches.map(p => p.biometric_id))].map(id => ({ biometric_id: id, last_seen: new Date().toISOString(), ...(names.has(id) ? { name: names.get(id) } : {}) })), { onConflict: 'biometric_id' });
 
-  const [{ data: stu }, { data: tea }] = await Promise.all([sb.from('students').select('id,biometric_id,first_name,section_id,sections(name)').not('biometric_id', 'is', null), sb.from('teachers').select('id,biometric_id').not('biometric_id', 'is', null)]);
-  const sMap = new Map(stu.map(s => [s.biometric_id, s])), tMap = new Map(tea.map(t => [t.biometric_id, t.id]));
-  const rows = punches.map(p => ({ biometric_id: p.biometric_id, device_id: p.device_id, punched_at: `${p.date}T${p.time}+08:00`, student_id: sMap.get(p.biometric_id)?.id || null, teacher_id: tMap.get(p.biometric_id) || null, _date: p.date }));
+  const { data: stu } = await sb.from('students').select('id,biometric_id,first_name,section_id,sections(name)').not('biometric_id', 'is', null);
+  const sMap = new Map(stu.map(s => [s.biometric_id, s]));
+  const rows = punches.map(p => ({ biometric_id: p.biometric_id, device_id: p.device_id, punched_at: `${p.date}T${p.time}+08:00`, student_id: sMap.get(p.biometric_id)?.id || null, _date: p.date }));
   const fresh = [];
   for (let i = 0; i < rows.length; i += 500) {                              // insert only unseen punches; .select() returns just the inserted ones
     const chunk = rows.slice(i, i + 500).map(({ _date, ...r }) => r);

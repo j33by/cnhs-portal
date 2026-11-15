@@ -24,3 +24,33 @@ throws(() => cleanProfile('teacher', { grade_levels: [] }), /grade levels/);
 assert.deepStrictEqual(cleanProfile('teacher', { grade_levels: [8, 7], teacher_no: 'T-1' }), { grade_levels: [8, 7] });
 assert.deepStrictEqual(cleanProfile('parent', { full_name: 'Mama Ana', contact_no: '0917' }), { full_name: 'Mama Ana', contact_no: '0917' });
 console.log('profile validation tests passed');
+// ---- add-class schedule validation
+const { cleanSchedules } = require('./services/classes');
+assert.strictEqual(cleanSchedules([{ days: [1, 3, 5], start_time: '07:30', end_time: '08:30' }]).length, 3);
+throws(() => cleanSchedules([]), /at least one/);
+throws(() => cleanSchedules([{ days: [], start_time: '07:30', end_time: '08:30' }]), /days/);
+throws(() => cleanSchedules([{ days: [7], start_time: '07:30', end_time: '08:30' }]), /days/);
+throws(() => cleanSchedules([{ days: [1], start_time: '09:00', end_time: '08:00' }]), /after/);
+throws(() => cleanSchedules([{ days: [1], start_time: '', end_time: '08:00' }]), /start and an end time/);
+throws(() => cleanSchedules([{ days: [1], start_time: '07:00', end_time: '08:00' }, { days: [1, 2], start_time: '07:30', end_time: '08:30' }]), /overlap/);
+assert.strictEqual(cleanSchedules([{ days: [1], start_time: '07:00', end_time: '08:00' }, { days: [1], start_time: '08:00', end_time: '09:00' }]).length, 2);   // back-to-back is fine
+throws(() => cleanSchedules([{ days: [6], start_time: '07:30', end_time: '08:30' }]), /days/);   // classes are Monday to Friday
+console.log('add-class validation tests passed');
+// ---- schedule slots
+const { parseSlots, findConflicts } = require('./services/slots');
+assert.strictEqual(parseSlots([{ days: [1, 3], start: '08:00', end: '09:00' }, { days: [5], start: '10:00', end: '11:30' }]).length, 3);
+throws(() => parseSlots([]), /time slots/);
+throws(() => parseSlots([{ days: [], start: '08:00', end: '09:00' }]), /days/);
+throws(() => parseSlots([{ days: [6], start: '08:00', end: '09:00' }]), /days/);
+throws(() => parseSlots([{ days: [1], start: '09:00', end: '08:00' }]), /before its end/);
+throws(() => parseSlots([{ days: [1], start: '8:00', end: '09:00' }]), /start time/);
+throws(() => parseSlots([{ days: [1], start: '08:00', end: '09:00' }, { days: [1, 2], start: '08:30', end: '09:30' }]), /overlap/);
+const fake = rows => ({ from: () => ({ select: () => ({ or: async () => ({ data: rows }) }) }) });
+(async () => {
+  const mine = { day_of_week: 1, start_time: '08:00:00', end_time: '09:00:00', teacher_id: 'T1', subjects: { name: 'Science' }, sections: { name: 'Rizal', grade_level: 7 } };
+  assert.match(await findConflicts(fake([mine]), { teacherId: 'T1', sectionId: 'S9', rows: [{ day_of_week: 1, start: '08:30', end: '09:30' }] }), /you already teach: Science/);
+  assert.match(await findConflicts(fake([{ ...mine, teacher_id: 'T2' }]), { teacherId: 'T1', sectionId: 'S9', rows: [{ day_of_week: 1, start: '08:30', end: '09:30' }] }), /already used in this section/);
+  assert.strictEqual(await findConflicts(fake([mine]), { teacherId: 'T1', sectionId: 'S9', rows: [{ day_of_week: 1, start: '09:00', end: '10:00' }] }), null);   // back-to-back is fine
+  assert.strictEqual(await findConflicts(fake([mine]), { teacherId: 'T1', sectionId: 'S9', rows: [{ day_of_week: 2, start: '08:00', end: '09:00' }] }), null);
+  console.log('schedule slot tests passed');
+})();

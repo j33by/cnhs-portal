@@ -2,6 +2,7 @@
 const { MAX_RECORD_COLS, recPercent, transmute, standingOf, isWeekday, phToday, validDate } = require('../services/records');
 const { notify } = require('../services/notify');
 const { parentsOf } = require('../services/attendance');
+const { cleanSchedules, DAY_NAMES } = require('../services/classes');
 const ST = ['P', 'A', 'L', 'E'];
 
 module.exports = function mount(app, { sb, wrap, bad, teacherOnly, curYear }) {
@@ -14,6 +15,87 @@ module.exports = function mount(app, { sb, wrap, bad, teacherOnly, curYear }) {
     .order('sex', { ascending: false }).order('last_name').order('first_name')).data || [];
   const lockedTerm = async (section_id, subject_id, term) => ((await sb.from('grades').select('id', { count: 'exact', head: true }).match({ section_id, subject_id, term, released: true })).count || 0) > 0;
   const checkDate = d => { if (!validDate(d) || d > phToday()) throw bad('Choose a valid date that is not in the future.'); if (!isWeekday(d)) throw bad('Classes are held Monday to Friday. Pick a weekday.'); };
+
+
+  // ---- Add / remove a class (a teacher teaching a subject in ANY section, advisory or not)
+  const hhmm = t => String(t).slice(0, 5);
+  // The teacher cannot be in two places at once, and a section cannot have two classes at the same time.
+  const conflictCheck = async (teacher_id, section_id, slots) => {
+    for (const x of slots) {
+      const sel = 'start_time,end_time,sections(name,grade_level),subjects(name)';
+      const { data: mine } = await sb.from('schedules').select(sel).eq('teacher_id', teacher_id).eq('day_of_week', x.day).lt('start_time', x.end).gt('end_time', x.start).limit(1);
+      if (mine?.length) { const m = mine[0]; throw bad(`You already teach ${m.subjects?.name || 'a class'} (Grade ${m.sections?.grade_level} ${m.sections?.name}) on ${DAY_NAMES[x.day]} ${hhmm(m.start_time)}-${hhmm(m.end_time)}`, 409); }
+      if (section_id) {
+        const { data: sec } = await sb.from('schedules').select('start_time,end_time,subjects(name)').eq('section_id', section_id).eq('day_of_week', x.day).lt('start_time', x.end).gt('end_time', x.start).limit(1);
+        if (sec?.length) throw bad(`That section already has ${sec[0].subjects?.name || 'a class'} on ${DAY_NAMES[x.day]} ${hhmm(sec[0].start_time)}-${hhmm(sec[0].end_time)}`, 409);
+      }
+    }
+  };
+  const insertSlots = (section_id, subject_id, teacher_id, slots, room) =>
+    sb.from('schedules').insert(slots.map(x => ({ section_id, subject_id, teacher_id, day_of_week: x.day, start_time: x.start, end_time: x.end, room: x.room || room || null })));
+
+  app.post('/api/classes', teacherOnly, wrap(async (q, r) => {
+    const b = q.body || {}, y = await curYear();
+    const { data: me } = await sb.from('teachers').select('grade_levels,first_name,last_name').eq('id', q.user.id).single();
+    const grade = Number(b.grade_level);
+    if (!me.grade_levels.includes(grade)) throw bad(`Grade ${b.grade_level || ''} is not one of your grade levels. Add it in Profile first.`);
+    const { data: mySub } = await sb.from('teacher_subjects').select('code,name').eq('teacher_id', q.user.id).eq('code', String(b.subject_code || '').toUpperCase()).maybeSingle();
+    if (!mySub) throw bad('Choose one of your subjects. Add it in the Subjects tab first.');
+    const slots = cleanSchedules(b.schedules);
+
+    // section: reuse an existing one (same grade + name, any adviser) or create it
+    let sec = null; const name = String(b.section_name || '').trim();
+    if (b.section_id) {
+      sec = (await sb.from('sections').select('*').eq('id', b.section_id).maybeSingle()).data;
+      if (!sec || sec.grade_level !== grade || sec.school_year_id !== y.id) throw bad('That section does not match the grade level');
+    } else {
+      if (!name || name.length > 30) throw bad('Enter the section name (up to 30 characters)');
+      const norm = v => String(v || '').trim().toLowerCase();
+      const { data: inGrade } = await sb.from('sections').select('*').eq('school_year_id', y.id).eq('grade_level', grade);
+      sec = (inGrade || []).find(x => norm(x.name) === norm(name) || (x.homeroom && norm(x.homeroom) === norm(name))) || null;   // typed a section OR a room that already exists
+    }
+    let sub = (await sb.from('subjects').select('id,name').eq('code', mySub.code).maybeSingle()).data;
+    if (!sub) { const ins = await sb.from('subjects').insert({ code: mySub.code, name: mySub.name }).select('id,name').single(); if (ins.error) throw ins.error; sub = ins.data; }
+    if (sec) {
+      const { data: ex } = await sb.from('section_subjects').select('teacher_id,teachers(first_name,last_name)').match({ section_id: sec.id, subject_id: sub.id }).maybeSingle();
+      if (ex && ex.teacher_id !== q.user.id) throw bad(`${ex.teachers?.first_name} ${ex.teachers?.last_name} already teaches ${mySub.name} in this section`, 409);
+    }
+    await conflictCheck(q.user.id, sec?.id, slots);                         // nothing is written until every check passes
+
+    let created = false;
+    if (!sec) {
+      const { data: used } = await sb.from('sections').select('biometric_dept_no').not('biometric_dept_no', 'is', null);
+      const taken = new Set((used || []).map(u => u.biometric_dept_no)); let dept = 1; while (taken.has(dept)) dept++;
+      const ins = await sb.from('sections').insert({ school_year_id: y.id, grade_level: grade, name, adviser_id: null, homeroom: (b.room || '').trim() || null, biometric_dept_no: dept <= 16 ? dept : null }).select().single();
+      if (ins.error) throw ins.error; sec = ins.data; created = true;
+    }
+    const { error: e1 } = await sb.from('section_subjects').upsert({ section_id: sec.id, subject_id: sub.id, teacher_id: q.user.id }, { onConflict: 'section_id,subject_id' }); if (e1) throw e1;
+    const { error: e2 } = await insertSlots(sec.id, sub.id, q.user.id, slots, (b.room || '').trim() || sec.homeroom); if (e2) throw e2;
+    if (sec.adviser_id && sec.adviser_id !== q.user.id) await notify(sb, [sec.adviser_id], { kind: 'section', title: 'New class in your section', body: `${me.first_name} ${me.last_name} will teach ${mySub.name} to Grade ${grade} ${sec.name}.` });
+    const { count } = await sb.from('students').select('id', { count: 'exact', head: true }).eq('section_id', sec.id).eq('status', 'enrolled');
+    r.json({ section_id: sec.id, subject_id: sub.id, created_section: created, section_name: sec.name, grade_level: grade, grading_term: sec.grading_term || 1, subject_name: mySub.name, students: count || 0, adviser: !!sec.adviser_id });
+  }));
+
+  app.post('/api/classes/:section_id/:subject_id/schedules', teacherOnly, wrap(async (q, r) => {
+    const c = await myClass(q.user.id, q.params.section_id, q.params.subject_id);
+    const slots = cleanSchedules(q.body.schedules); await conflictCheck(q.user.id, q.params.section_id, slots);
+    const { data: sec } = await sb.from('sections').select('homeroom').eq('id', q.params.section_id).single();
+    const { error } = await insertSlots(q.params.section_id, q.params.subject_id, q.user.id, slots, (q.body.room || '').trim() || sec?.homeroom); if (error) throw error;
+    r.json({ added: slots.length });
+  }));
+
+  // Stop teaching a class. Grades, attendance and class-record data are kept; only the assignment and its schedule go.
+  app.delete('/api/classes/:section_id/:subject_id', teacherOnly, wrap(async (q, r) => {
+    await myClass(q.user.id, q.params.section_id, q.params.subject_id);
+    await sb.from('schedules').delete().match({ section_id: q.params.section_id, subject_id: q.params.subject_id, teacher_id: q.user.id });
+    await sb.from('section_subjects').delete().match({ section_id: q.params.section_id, subject_id: q.params.subject_id }); r.json({ ok: true });
+  }));
+
+
+  app.post('/api/sections/:id/claim', teacherOnly, wrap(async (q, r) => {                      // become the adviser of a section that has none
+    const { data } = await sb.from('sections').update({ adviser_id: q.user.id }).eq('id', q.params.id).is('adviser_id', null).select('id');
+    if (!data?.length) throw bad('This section already has an adviser.', 409); r.json({ ok: true });
+  }));
 
   // ---- Subject attendance (per class, per date) + absence rule
   app.put('/api/class-policy', teacherOnly, wrap(async (q, r) => {
