@@ -36,6 +36,19 @@ jobs:
       - name: Analyze (lists any code errors clearly)
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
         continue-on-error: true
+      - name: Let all plugins compile against Android API 36
+        run: |
+          mkdir -p ~/.gradle/init.d
+          cat > ~/.gradle/init.d/compile-sdk.gradle <<'EOF'
+          allprojects {
+            afterEvaluate { p ->
+              def a = p.extensions.findByName('android')
+              if (a != null && p.name != 'app') {
+                try { a.compileSdk = 36 } catch (ignored) { try { a.compileSdkVersion(36) } catch (ignored2) { } }
+              }
+            }
+          }
+          EOF
       - run: flutter build apk --release ${{ env.DEFINES }}
       - uses: actions/upload-artifact@v4
         with: { name: cnhs-android-apk, path: app/build/app/outputs/flutter-apk/app-release.apk }
