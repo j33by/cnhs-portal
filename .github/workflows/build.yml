@@ -12,7 +12,18 @@ jobs:
         with: { distribution: temurin, java-version: 17 }
       - uses: subosito/flutter-action@v2
         with: { channel: stable, cache: true }
-      - run: echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > android/app/google-services.json
+      - name: Generate android/ if missing
+        run: |
+          if [ ! -d android ]; then
+            flutter create . --platforms=android --org io.cnhs --project-name cnhs_portal
+            python3 ../.github/scripts/patch_android.py
+          fi
+      - name: Write google-services.json
+        env:
+          GSJ: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -z "$GSJ" ]; then echo "GOOGLE_SERVICES_JSON secret is empty"; exit 1; fi
+          printf '%s' "$GSJ" > android/app/google-services.json
       - run: flutter pub get
       - run: flutter build apk --release $DEFINES
       - uses: actions/upload-artifact@v4
@@ -25,6 +36,12 @@ jobs:
       - uses: subosito/flutter-action@v2
         with: { channel: stable, cache: true }
       - run: flutter config --enable-windows-desktop
+      - name: Generate windows/ if missing
+        shell: pwsh
+        run: |
+          if (-not (Test-Path windows)) {
+            flutter create . --platforms=windows --org io.cnhs --project-name cnhs_portal
+          }
       - run: flutter pub get
       - run: flutter build windows --release ${{ env.DEFINES }}
       - uses: actions/upload-artifact@v4
