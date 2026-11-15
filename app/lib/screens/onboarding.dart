@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import '../core/api.dart';
 import '../widgets/avatar_picker.dart';
-
-const kSubjects = ['English', 'Filipino', 'Mathematics', 'Science', 'Araling Panlipunan', 'MAPEH', 'TLE', 'Values Education', 'Research', 'Practical Research', 'Entrepreneurship', 'ICT', 'Accountancy (ABM)', 'Other'];
+import '../widgets/subjects_editor.dart';
 
 /// Shown right after the first Google sign-in. Role -> form -> automatic ID.
 class OnboardingScreen extends StatefulWidget { const OnboardingScreen({super.key}); @override State<OnboardingScreen> createState() => _O(); }
@@ -46,18 +45,22 @@ mixin _FormHelpers<T extends StatefulWidget> on State<T> {
 
 class _TeacherForm extends StatefulWidget { const _TeacherForm(); @override State<_TeacherForm> createState() => _TF(); }
 class _TF extends State<_TeacherForm> with _FormHelpers {
-  final subs = <String>{}; final grades = <int>{};
+  List<Map<String, String>> subjects = []; final grades = <int>{};
   @override
   Widget build(BuildContext c) => Form(key: key, child: ListView(padding: const EdgeInsets.all(20), children: [
         Center(child: AvatarPicker(onUploaded: (u) => v['photo_url'] = u)), const SizedBox(height: 16),
-        tf('first_name', 'First name'), tf('last_name', 'Last name'), tf('birthdate', 'Birthdate (YYYY-MM-DD)'), tf('address', 'Address', max: 2), tf('contact_no', 'Contact number', type: TextInputType.phone),
-        Text('Subjects you handle (up to 5) *', style: Theme.of(c).textTheme.titleSmall),
-        Wrap(spacing: 6, children: [for (final s in kSubjects) FilterChip(label: Text(s), selected: subs.contains(s), onSelected: (on) => setState(() { if (on && subs.length < 5) { subs.add(s); } else { subs.remove(s); } }))]),
-        const SizedBox(height: 16), Text('Grade levels you handle (up to 5) *', style: Theme.of(c).textTheme.titleSmall),
+        tf('first_name', 'First name'), tf('last_name', 'Last name'), tf('birthdate', 'Birthdate (YYYY-MM-DD)', req: false), tf('address', 'Address', max: 2), tf('contact_no', 'Contact number', type: TextInputType.phone),
+        Text('Subjects you handle (up to 5) *', style: Theme.of(c).textTheme.titleSmall), const SizedBox(height: 8),
+        SubjectsEditor(onChanged: (x) => subjects = x),
+        const SizedBox(height: 12), Text('Grade levels you handle (up to 5) *', style: Theme.of(c).textTheme.titleSmall),
         Wrap(spacing: 6, children: [for (var g = 7; g <= 12; g++) FilterChip(label: Text('Grade $g'), selected: grades.contains(g), onSelected: (on) => setState(() { if (on && grades.length < 5) { grades.add(g); } else { grades.remove(g); } }))]),
         const SizedBox(height: 24),
-        submitBtn(() { if (subs.isEmpty || grades.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pick at least one subject and grade level'))); return; }
-          submit('/api/onboarding/teacher', fix: () => {'subjects': subs.toList(), 'grade_levels': grades.toList()}); }),
+        submitBtn(() {
+          final filled = subjects.where((s) => (s['code'] ?? '').isNotEmpty || (s['name'] ?? '').isNotEmpty).toList();
+          if (filled.isEmpty || filled.any((s) => (s['code'] ?? '').isEmpty || (s['name'] ?? '').isEmpty)) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Type a code and a name for each subject'))); return; }
+          if (grades.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pick at least one grade level'))); return; }
+          submit('/api/onboarding/teacher', fix: () => {'subjects': filled, 'grade_levels': grades.toList()});
+        }),
       ]));
 }
 

@@ -17,8 +17,9 @@ class Api {
         'Content-Type': 'application/json',
       };
   static dynamic _out(http.Response r) {
-    final body = r.body.isEmpty ? {} : jsonDecode(r.body);
-    if (r.statusCode >= 400) throw ApiException(body['error']?.toString() ?? 'Request failed (${r.statusCode})');
+    dynamic body;
+    try { body = r.body.isEmpty ? <String, dynamic>{} : jsonDecode(r.body); } catch (_) { body = {'error': 'Server error (${r.statusCode})'}; }
+    if (r.statusCode >= 400) throw ApiException((body is Map ? body['error'] : null)?.toString() ?? 'Request failed (${r.statusCode})');
     return body;
   }
   static Future<dynamic> post(String p, [Map<String, dynamic>? b]) async =>

@@ -58,24 +58,29 @@ class _Students extends StatelessWidget {
 class _Schedule extends StatelessWidget {
   final String sid; const _Schedule(this.sid);
   Future<void> _add(BuildContext c) async {
-    final subj = TextEditingController(), room = TextEditingController(), st = TextEditingController(text: '07:50'), en = TextEditingController(text: '08:50');
+    final name = TextEditingController(), code = TextEditingController(), room = TextEditingController(), st = TextEditingController(text: '07:50'), en = TextEditingController(text: '08:50');
     int day = 1; String? teacher;
-    final teachers = await sb.from('teachers').select('id,first_name,last_name,subjects'); if (!c.mounted) return;
-    await showDialog(context: c, builder: (_) => StatefulBuilder(builder: (c2, set) => AlertDialog(title: const Text('Add class'), content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-      TextField(controller: subj, decoration: const InputDecoration(labelText: 'Subject')),
-      DropdownButtonFormField<int>(initialValue: day, decoration: const InputDecoration(labelText: 'Day'), items: [for (var d = 1; d <= 6; d++) DropdownMenuItem(value: d, child: Text(kDays[d]))], onChanged: (v) => day = v!),
-      Row(children: [Expanded(child: TextField(controller: st, decoration: const InputDecoration(labelText: 'Start HH:MM'))), const SizedBox(width: 8), Expanded(child: TextField(controller: en, decoration: const InputDecoration(labelText: 'End HH:MM')))]),
-      TextField(controller: room, decoration: const InputDecoration(labelText: 'Room')),
-      DropdownButtonFormField<String>(decoration: const InputDecoration(labelText: 'Teacher'), items: [for (final t in teachers) DropdownMenuItem(value: t['id'] as String, child: Text('${t['first_name']} ${t['last_name']} (${(t['subjects'] as List).join(', ')})', overflow: TextOverflow.ellipsis))], onChanged: (v) => teacher = v),
-    ])), actions: [TextButton(onPressed: () => Navigator.pop(c2), child: const Text('Cancel')), FilledButton(onPressed: () async {
-      Navigator.pop(c2);
-      try {
-        final code = subj.text.trim().toUpperCase().replaceAll(' ', '_');
-        await Api.post('/api/sections/$sid/subjects', {'code': code, 'name': subj.text.trim(), 'teacher_id': teacher});
-        final sub = await sb.from('subjects').select('id').eq('code', code).single();
-        await Api.post('/api/sections/$sid/schedules', {'subject_id': sub['id'], 'teacher_id': teacher, 'day_of_week': day, 'start_time': st.text, 'end_time': en.text, 'room': room.text.isEmpty ? null : room.text});
-      } catch (e) { if (c.mounted) ScaffoldMessenger.of(c).showSnackBar(SnackBar(content: Text('$e'))); }
-    }, child: const Text('Save'))])));
+    final teachers = await sb.from('teacher_names').select('id,first_name,last_name,subjects'); if (!c.mounted) return;
+    await showDialog(context: c, builder: (_) => StatefulBuilder(builder: (c2, set) {
+      final mine = teacher == null ? <dynamic>[] : ((teachers.firstWhere((t) => t['id'] == teacher)['subjects'] as List?) ?? []);
+      return AlertDialog(title: const Text('Add class'), content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        DropdownButtonFormField<String>(decoration: const InputDecoration(labelText: 'Teacher'), items: [for (final t in teachers) DropdownMenuItem(value: t['id'] as String, child: Text('${t['first_name']} ${t['last_name']}', overflow: TextOverflow.ellipsis))], onChanged: (v) => set(() => teacher = v)),
+        if (mine.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: Wrap(spacing: 6, children: [for (final s in mine) ActionChip(label: Text('${s['code']} · ${s['name']}'), onPressed: () { name.text = '${s['name']}'; code.text = '${s['code']}'; })])),
+        Row(children: [SizedBox(width: 100, child: TextField(controller: code, textCapitalization: TextCapitalization.characters, decoration: const InputDecoration(labelText: 'Code'))), const SizedBox(width: 8), Expanded(child: TextField(controller: name, decoration: const InputDecoration(labelText: 'Subject name')))]),
+        DropdownButtonFormField<int>(initialValue: day, decoration: const InputDecoration(labelText: 'Day'), items: [for (var d = 1; d <= 6; d++) DropdownMenuItem(value: d, child: Text(kDays[d]))], onChanged: (v) => day = v!),
+        Row(children: [Expanded(child: TextField(controller: st, decoration: const InputDecoration(labelText: 'Start HH:MM'))), const SizedBox(width: 8), Expanded(child: TextField(controller: en, decoration: const InputDecoration(labelText: 'End HH:MM')))]),
+        TextField(controller: room, decoration: const InputDecoration(labelText: 'Room')),
+      ])), actions: [TextButton(onPressed: () => Navigator.pop(c2), child: const Text('Cancel')), FilledButton(onPressed: () async {
+        final nm = name.text.trim(), cd = code.text.trim().toUpperCase().replaceAll(' ', '_');
+        if (nm.isEmpty || cd.isEmpty) { ScaffoldMessenger.of(c2).showSnackBar(const SnackBar(content: Text('Type the subject code and name'))); return; }
+        Navigator.pop(c2);
+        try {
+          await Api.post('/api/sections/$sid/subjects', {'code': cd, 'name': nm, 'teacher_id': teacher});
+          final sub = await sb.from('subjects').select('id').eq('code', cd).single();
+          await Api.post('/api/sections/$sid/schedules', {'subject_id': sub['id'], 'teacher_id': teacher, 'day_of_week': day, 'start_time': st.text, 'end_time': en.text, 'room': room.text.isEmpty ? null : room.text});
+        } catch (e) { if (c.mounted) ScaffoldMessenger.of(c).showSnackBar(SnackBar(content: Text('$e'))); }
+      }, child: const Text('Save'))]);
+    }));
   }
   @override
   Widget build(BuildContext c) => Scaffold(floatingActionButton: FloatingActionButton(child: const Icon(Icons.add), onPressed: () => _add(c)), body: ScheduleView(sid));

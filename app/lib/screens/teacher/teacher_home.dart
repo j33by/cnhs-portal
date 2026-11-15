@@ -6,6 +6,7 @@ import '../../widgets/shared.dart';
 import 'advisory.dart';
 import 'classes.dart';
 import 'bind_requests.dart';
+import 'my_subjects.dart';
 import 'usb_panel.dart';
 
 class TeacherHome extends StatefulWidget { final Map<String, dynamic> profile; const TeacherHome({super.key, required this.profile}); @override State<TeacherHome> createState() => _T(); }
@@ -19,6 +20,7 @@ class _T extends State<TeacherHome> {
     final tabs = <(String, IconData, Widget)>[
       ('Advisory', Icons.groups, AdvisoryScreen(teacherId: widget.profile['id'])),
       ('My classes', Icons.menu_book, MyClasses(teacherId: widget.profile['id'])),
+      ('Subjects', Icons.subject, const MySubjects()),
       ('Requests', Icons.link, const BindRequests()),
       if (desktop) ('Biometric USB', Icons.usb, UsbPanel(usb: usb)),
       ('Alerts', Icons.notifications, const NotificationsView()),

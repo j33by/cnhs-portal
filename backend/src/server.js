@@ -14,14 +14,17 @@ const wrap = f => (q, r) => f(q, r).catch(e => { console.error(e); r.status(e.st
 const bad = (m, s = 400) => Object.assign(new Error(m), { status: s });
 
 // ---- auth: every request carries the Supabase (Google) access token
-async function auth(req, _res, next) {
-  const tok = (req.headers.authorization || '').replace('Bearer ', '');
-  const { data, error } = await sb.auth.getUser(tok);
-  if (error || !data.user) return next(bad('Not signed in', 401));
-  const { data: p } = await sb.from('profiles').select('*').eq('id', data.user.id).maybeSingle();
-  req.user = data.user; req.profile = p; next();
+async function auth(req, res, next) {
+  try {
+    const tok = (req.headers.authorization || '').replace('Bearer ', '');
+    if (!tok) return res.status(401).json({ error: 'Not signed in' });
+    const { data, error } = await sb.auth.getUser(tok);
+    if (error || !data?.user) return res.status(401).json({ error: 'Session expired. Please sign in again.' });
+    const { data: p } = await sb.from('profiles').select('*').eq('id', data.user.id).maybeSingle();
+    req.user = data.user; req.profile = p; next();
+  } catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
 }
-const teacherOnly = (q, _r, n) => n(q.profile?.role === 'teacher' ? undefined : bad('Teachers only', 403));
+const teacherOnly = (q, r, n) => q.profile?.role === 'teacher' ? n() : r.status(403).json({ error: 'Teachers only' });
 const curYear = async () => (await sb.from('school_years').select('*').eq('is_current', true).single()).data;
 // Device (fingerprint terminal) IDs are separate from school IDs. New people get a number ABOVE every ID the terminal already uses,
 // so they can never collide with someone already enrolled there. Existing device IDs are attached with /api/device/link.
@@ -34,20 +37,45 @@ const freeBioId = async () => {
 const adviserOfStudent = async (uid, sid) => { const { data } = await sb.from('students').select('section_id,sections(adviser_id)').eq('id', sid).maybeSingle();
   if (!data) throw bad('Student not found', 404); if (data.section_id && data.sections?.adviser_id !== uid) throw bad("Only the student's adviser can change this record", 403); };
 
+// Teacher subjects are typed by the teacher: [{code:'MATH7', name:'Mathematics 7'}], 1 to 5.
+const cleanSubjects = list => {
+  if (!Array.isArray(list)) throw bad('Add at least one subject');
+  const rows = list.map(x => ({ code: String(x?.code || '').trim().toUpperCase().replace(/\s+/g, '_'), name: String(x?.name || '').trim() })).filter(x => x.code || x.name);
+  if (rows.length < 1 || rows.length > 5) throw bad('Add 1 to 5 subjects');
+  for (const x of rows) {
+    if (!x.name || x.name.length > 60) throw bad('Every subject needs a name (up to 60 characters)');
+    if (!/^[A-Z0-9_.-]{2,20}$/.test(x.code)) throw bad(`Subject code for "${x.name}" must be 2-20 letters or numbers, e.g. MATH7`);
+  }
+  if (new Set(rows.map(x => x.code)).size !== rows.length) throw bad('Two subjects have the same code');
+  return rows;
+};
 app.get('/health', (_q, r) => r.json({ ok: true }));
-app.use('/api', wrap(async (q, r, n) => auth(q, r, n)));
+app.use('/api', auth);
 
 // ============ Sign-up forms (after Google sign-in) ============
 app.post('/api/onboarding/teacher', wrap(async (q, r) => {
   const b = q.body; if (q.profile?.onboarded) throw bad('Already registered');
-  if (!b.first_name || !b.last_name) throw bad('Name is required');
-  if (!(b.subjects?.length >= 1 && b.subjects.length <= 5)) throw bad('Choose 1 to 5 subjects');
+  if (!b.first_name?.trim() || !b.last_name?.trim()) throw bad('Name is required');
+  const subjects = cleanSubjects(b.subjects);
   if (!(b.grade_levels?.length >= 1 && b.grade_levels.length <= 5)) throw bad('Choose 1 to 5 grade levels');
   const id = q.user.id, no = await nextId(sb, 'teacher');
-  await sb.from('profiles').upsert({ id, role: 'teacher', email: q.user.email, full_name: `${b.first_name} ${b.last_name}`, photo_url: b.photo_url, onboarded: true });
-  const { error } = await sb.from('teachers').insert({ id, teacher_no: no, first_name: b.first_name, last_name: b.last_name, birthdate: b.birthdate, address: b.address,
-    contact_no: b.contact_no, subjects: b.subjects, grade_levels: b.grade_levels, biometric_id: await freeBioId() });
-  if (error) throw error; r.json({ teacher_no: no });
+  // onboarded stays false until every row is saved, so a failed attempt can simply be retried
+  await sb.from('profiles').upsert({ id, role: 'teacher', email: q.user.email, full_name: `${b.first_name} ${b.last_name}`.trim(), photo_url: b.photo_url, onboarded: false });
+  await sb.from('teachers').delete().eq('id', id);
+  const { error } = await sb.from('teachers').insert({ id, teacher_no: no, first_name: b.first_name.trim(), last_name: b.last_name.trim(), birthdate: b.birthdate || null, address: b.address,
+    contact_no: b.contact_no, grade_levels: b.grade_levels, biometric_id: await freeBioId() });
+  if (error) throw error;
+  const { error: e2 } = await sb.from('teacher_subjects').insert(subjects.map(x => ({ ...x, teacher_id: id })));
+  if (e2) { await sb.from('teachers').delete().eq('id', id); throw e2; }
+  await sb.from('profiles').update({ onboarded: true }).eq('id', id);
+  r.json({ teacher_no: no });
+}));
+// "My subjects" tab: replace this teacher's list (1-5, typed name + code)
+app.put('/api/my-subjects', teacherOnly, wrap(async (q, r) => {
+  const rows = cleanSubjects(q.body.subjects).map(x => ({ ...x, teacher_id: q.user.id }));
+  const { error } = await sb.from('teacher_subjects').upsert(rows, { onConflict: 'teacher_id,code' }); if (error) throw error;
+  await sb.from('teacher_subjects').delete().eq('teacher_id', q.user.id).not('code', 'in', `(${rows.map(x => x.code).join(',')})`);
+  r.json({ saved: rows.length });
 }));
 app.post('/api/onboarding/student', wrap(async (q, r) => {
   const b = q.body; if (q.profile?.onboarded) throw bad('Already registered');
@@ -55,10 +83,13 @@ app.post('/api/onboarding/student', wrap(async (q, r) => {
   const y = await curYear(), id = q.user.id, no = await nextId(sb, 'student', y.label);
   let section_id = null;
   if (b.section_id) { const { data: sec } = await sb.from('sections').select('id,grade_level').eq('id', b.section_id).maybeSingle(); if (sec && sec.grade_level === b.grade_level) section_id = sec.id; }
-  await sb.from('profiles').upsert({ id, role: 'student', email: q.user.email, full_name: `${b.first_name} ${b.last_name}`, photo_url: b.photo_url, onboarded: true });
+  await sb.from('profiles').upsert({ id, role: 'student', email: q.user.email, full_name: `${b.first_name} ${b.last_name}`, photo_url: b.photo_url, onboarded: false });
+  await sb.from('students').delete().eq('id', id);
   const { error } = await sb.from('students').insert({ id, student_no: no, first_name: b.first_name, middle_name: b.middle_name, last_name: b.last_name, age: b.age, sex: b.sex,
-    birthdate: b.birthdate, address: b.address, lrn: b.lrn, grade_level: b.grade_level, section_id, guardian_name: b.guardian_name, guardian_contact: b.guardian_contact, biometric_id: await freeBioId() });
-  if (error) throw error; r.json({ student_no: no, section_matched: !!section_id });   // unmatched section => adviser adds them
+    birthdate: b.birthdate || null, address: b.address, lrn: b.lrn || null, grade_level: b.grade_level, section_id, guardian_name: b.guardian_name, guardian_contact: b.guardian_contact, biometric_id: await freeBioId() });
+  if (error) throw error;
+  await sb.from('profiles').update({ onboarded: true }).eq('id', id);
+  r.json({ student_no: no, section_matched: !!section_id });   // unmatched section => adviser adds them
 }));
 app.post('/api/onboarding/parent', wrap(async (q, r) => {
   if (!q.body.full_name) throw bad('Name is required');
@@ -169,4 +200,5 @@ app.get('/api/usb/employee-form', teacherOnly, wrap(async (_q, r) => {
 app.post('/api/usb/written', teacherOnly, wrap(async (q, r) => { await sb.from('usb_sync_state').update({ dirty: false }).eq('id', 1).lte('version', q.body.version); r.json({ ok: true }); }));
 app.post('/api/attendance/close-day', teacherOnly, wrap(async (q, r) => r.json(await closeDay(sb, q.body.date || new Date(Date.now() + 8 * 36e5).toISOString().slice(0, 10)))));
 
+app.use((err, _q, r, _n) => { console.error(err); r.status(err.status || 500).json({ error: err.message || 'Server error' }); });
 app.listen(process.env.PORT || 3000, () => console.log('CNHS API up'));

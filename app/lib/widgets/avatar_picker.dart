@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../core/api.dart';
 
 /// Uploads to Supabase Storage bucket "avatars" under <userId>/profile.jpg and returns the public URL.
@@ -18,9 +17,9 @@ class _S extends State<AvatarPicker> {
     final File? f = x == null ? null : File(x.path);
     if (f == null) return; setState(() => busy = true);
     try {
-      final path = '${sb.auth.currentUser!.id}/profile.jpg';
-      await sb.storage.from('avatars').upload(path, f, fileOptions: FileOptions(upsert: true));
-      final u = '${sb.storage.from('avatars').getPublicUrl(path)}?t=${DateTime.now().millisecondsSinceEpoch}';
+      final path = '${sb.auth.currentUser!.id}/profile_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      await sb.storage.from('avatars').upload(path, f);
+      final u = sb.storage.from('avatars').getPublicUrl(path);
       setState(() => url = u); widget.onUploaded(u);
     } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload failed: $e'))); }
     if (mounted) setState(() => busy = false);
