@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../core/api.dart';
 
@@ -15,9 +14,8 @@ class _S extends State<AvatarPicker> {
   String? url; bool busy = false;
   @override void initState() { super.initState(); url = widget.url; }
   Future<void> _pick() async {
-    File? f;
-    if (Platform.isAndroid) { final x = await ImagePicker().pickImage(source: ImageSource.gallery, maxWidth: 800, imageQuality: 80); if (x != null) f = File(x.path); }
-    else { final r = await FilePicker.platform.pickFiles(type: FileType.image); if (r?.files.single.path != null) f = File(r!.files.single.path!); }
+    final x = await ImagePicker().pickImage(source: ImageSource.gallery, maxWidth: 800, imageQuality: 80);
+    final File? f = x == null ? null : File(x.path);
     if (f == null) return; setState(() => busy = true);
     try {
       final path = '${sb.auth.currentUser!.id}/profile.jpg';
