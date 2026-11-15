@@ -30,7 +30,7 @@ jobs:
           rm -rf test
       - run: flutter pub get
       - name: App icon (school seal)
-        run: dart run flutter_launcher_icons -f flutter_launcher_icons-android.yaml
+        run: dart run flutter_launcher_icons -f tool/icons_android.yaml
       - name: Analyze (lists any code errors clearly)
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
         continue-on-error: true
@@ -54,7 +54,7 @@ jobs:
           (Get-Content pubspec.yaml) | Where-Object { $_ -notmatch '^\s+firebase_' } | Set-Content pubspec.yaml
       - run: flutter pub get
       - name: App icon (school seal)
-        run: dart run flutter_launcher_icons -f flutter_launcher_icons-windows.yaml
+        run: dart run flutter_launcher_icons -f tool/icons_windows.yaml
       - name: Analyze (lists any code errors clearly)
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
         continue-on-error: true
