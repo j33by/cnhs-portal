@@ -19,7 +19,7 @@ class AttendanceView extends StatelessWidget {
           return ListView(children: [
             Padding(padding: const EdgeInsets.all(12), child: Row(children: [for (final k in ['P', 'L', 'A', 'E']) Expanded(child: Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(children: [Text('${n(k)}', style: TextStyle(fontSize: 24, color: kStatus[k]![1] as Color, fontWeight: FontWeight.bold)), Text(kStatus[k]![0] as String, style: const TextStyle(fontSize: 12))]))))])),
             for (final r in rows) ListTile(
-              leading: CircleAvatar(backgroundColor: (kStatus[r['status']]![1] as Color).withOpacity(.15), child: Text(r['status'], style: TextStyle(color: kStatus[r['status']]![1] as Color, fontWeight: FontWeight.bold))),
+              leading: CircleAvatar(backgroundColor: (kStatus[r['status']]![1] as Color).withValues(alpha: .15), child: Text(r['status'], style: TextStyle(color: kStatus[r['status']]![1] as Color, fontWeight: FontWeight.bold))),
               title: Text(DateFormat('EEE, MMM d, y').format(DateTime.parse(r['att_date']))),
               subtitle: Text(r['status'] == 'A' ? 'No time-in' : 'In ${t12(r['time_in'])}   Out ${t12(r['time_out'])}')),
           ]);

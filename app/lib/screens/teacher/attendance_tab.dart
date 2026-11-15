@@ -100,7 +100,7 @@ class _AttState extends State<AttendanceTab> {
     final k = '$d|${s['id']}'; final v = st[k] ?? ''; final col = v.isEmpty ? Colors.grey : kStatus[v]![1] as Color;
     return InkWell(
       onTap: () => setState(() => st[k] = _cycle[v]!), onLongPress: () => _remark(d, s),
-      child: Container(width: 38, height: 34, alignment: Alignment.center, decoration: BoxDecoration(color: col.withOpacity(.15), border: Border.all(color: col, width: (rm[k] ?? '').isNotEmpty ? 2.5 : 1), borderRadius: BorderRadius.circular(6)),
+      child: Container(width: 38, height: 34, alignment: Alignment.center, decoration: BoxDecoration(color: col.withValues(alpha: .15), border: Border.all(color: col, width: (rm[k] ?? '').isNotEmpty ? 2.5 : 1), borderRadius: BorderRadius.circular(6)),
           child: Text(v.isEmpty ? '·' : v, style: TextStyle(color: col, fontWeight: FontWeight.bold))),
     );
   }

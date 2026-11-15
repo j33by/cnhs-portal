@@ -20,7 +20,7 @@ class _S extends State<AvatarPicker> {
     if (f == null) return; setState(() => busy = true);
     try {
       final path = '${sb.auth.currentUser!.id}/profile.jpg';
-      await sb.storage.from('avatars').upload(path, f, fileOptions: const FileOptions(upsert: true));
+      await sb.storage.from('avatars').upload(path, f, fileOptions: FileOptions(upsert: true));
       final u = '${sb.storage.from('avatars').getPublicUrl(path)}?t=${DateTime.now().millisecondsSinceEpoch}';
       setState(() => url = u); widget.onUploaded(u);
     } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload failed: $e'))); }

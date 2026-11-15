@@ -18,5 +18,5 @@ Future<int> currentYearId() async => (await sb.from('school_years').select('id')
 Widget standingChip(int absences, int free) {
   final s = standingOf(absences, free);
   final col = s == 'dropped' ? Colors.red : s == 'warning' ? Colors.orange : Colors.green;
-  return Chip(visualDensity: VisualDensity.compact, label: Text(s == 'ok' ? 'OK' : s == 'warning' ? 'Warning' : 'Over limit', style: const TextStyle(fontSize: 11)), backgroundColor: col.withOpacity(.15), side: BorderSide(color: col));
+  return Chip(visualDensity: VisualDensity.compact, label: Text(s == 'ok' ? 'OK' : s == 'warning' ? 'Warning' : 'Over limit', style: const TextStyle(fontSize: 11)), backgroundColor: col.withValues(alpha: .15), side: BorderSide(color: col));
 }

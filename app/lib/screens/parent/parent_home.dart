@@ -19,7 +19,7 @@ class _P extends State<ParentHome> {
         builder: (c, s) {
           final links = s.data ?? [];
           final ok = links.where((l) => l['status'] == 'approved').toList(), pending = links.where((l) => l['status'] == 'pending').length;
-          return DefaultTabController(length: ok.length + 1, child: Scaffold(
+          return DefaultTabController(key: ValueKey(ok.length), length: ok.length + 1, child: Scaffold(
             appBar: AppBar(title: const Text('CNHS Parent'), actions: [
               IconButton(icon: const Icon(Icons.person_add), tooltip: 'Link a child', onPressed: _dialog),
               IconButton(icon: const Icon(Icons.notifications), onPressed: () => Navigator.push(c, MaterialPageRoute(builder: (_) => Scaffold(appBar: AppBar(title: const Text('Notifications')), body: const NotificationsView())))),

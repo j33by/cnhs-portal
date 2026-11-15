@@ -63,7 +63,7 @@ class _Schedule extends StatelessWidget {
     final teachers = await sb.from('teachers').select('id,first_name,last_name,subjects'); if (!c.mounted) return;
     await showDialog(context: c, builder: (_) => StatefulBuilder(builder: (c2, set) => AlertDialog(title: const Text('Add class'), content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
       TextField(controller: subj, decoration: const InputDecoration(labelText: 'Subject')),
-      DropdownButtonFormField<int>(value: day, decoration: const InputDecoration(labelText: 'Day'), items: [for (var d = 1; d <= 6; d++) DropdownMenuItem(value: d, child: Text(kDays[d]))], onChanged: (v) => day = v!),
+      DropdownButtonFormField<int>(initialValue: day, decoration: const InputDecoration(labelText: 'Day'), items: [for (var d = 1; d <= 6; d++) DropdownMenuItem(value: d, child: Text(kDays[d]))], onChanged: (v) => day = v!),
       Row(children: [Expanded(child: TextField(controller: st, decoration: const InputDecoration(labelText: 'Start HH:MM'))), const SizedBox(width: 8), Expanded(child: TextField(controller: en, decoration: const InputDecoration(labelText: 'End HH:MM')))]),
       TextField(controller: room, decoration: const InputDecoration(labelText: 'Room')),
       DropdownButtonFormField<String>(decoration: const InputDecoration(labelText: 'Teacher'), items: [for (final t in teachers) DropdownMenuItem(value: t['id'] as String, child: Text('${t['first_name']} ${t['last_name']} (${(t['subjects'] as List).join(', ')})', overflow: TextOverflow.ellipsis))], onChanged: (v) => teacher = v),
