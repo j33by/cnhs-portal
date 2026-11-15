@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/api.dart';
 import '../../widgets/shared.dart';
+import '../profile_screen.dart';
 
 class ParentHome extends StatefulWidget { final Map<String, dynamic> profile; const ParentHome({super.key, required this.profile}); @override State<ParentHome> createState() => _P(); }
 class _P extends State<ParentHome> {
@@ -19,13 +20,13 @@ class _P extends State<ParentHome> {
         builder: (c, s) {
           final links = s.data ?? [];
           final ok = links.where((l) => l['status'] == 'approved').toList(), pending = links.where((l) => l['status'] == 'pending').length;
-          return DefaultTabController(key: ValueKey(ok.length), length: ok.length + 1, child: Scaffold(
+          return DefaultTabController(key: ValueKey(ok.length), length: ok.length + 2, child: Scaffold(
             appBar: AppBar(title: const Text('CNHS Parent'), actions: [
               IconButton(icon: const Icon(Icons.person_add), tooltip: 'Link a child', onPressed: _dialog),
               IconButton(icon: const Icon(Icons.notifications), onPressed: () => Navigator.push(c, MaterialPageRoute(builder: (_) => Scaffold(appBar: AppBar(title: const Text('Notifications')), body: const NotificationsView())))),
               IconButton(icon: const Icon(Icons.logout), onPressed: () => sb.auth.signOut())],
-              bottom: TabBar(isScrollable: true, tabs: [for (final l in ok) _ChildTab(l['student_id']), const Tab(text: 'Requests')])),   // one tab per child
-            body: TabBarView(children: [for (final l in ok) _ChildPage(l['student_id']), _Requests(links, pending)])));
+              bottom: TabBar(isScrollable: true, tabs: [for (final l in ok) _ChildTab(l['student_id']), const Tab(text: 'Requests'), const Tab(text: 'Profile')])),   // one tab per child
+            body: TabBarView(children: [for (final l in ok) _ChildPage(l['student_id']), _Requests(links, pending), const ProfileTab()])));
         });
 }
 class _ChildTab extends StatelessWidget {

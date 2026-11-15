@@ -6,6 +6,7 @@ const { parseEmployeeForm, } = require('./services/biometric');
 const { buildEmployeeForm } = require('./services/xlsWriter');
 const { notify } = require('./services/notify');
 const mountClasses = require('./routes/classes');
+const { cleanProfile } = require('./services/profile');
 
 const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 const app = express(); app.use(cors()); app.use(express.json({ limit: '2mb' }));
@@ -79,7 +80,8 @@ app.put('/api/my-subjects', teacherOnly, wrap(async (q, r) => {
 }));
 app.post('/api/onboarding/student', wrap(async (q, r) => {
   const b = q.body; if (q.profile?.onboarded) throw bad('Already registered');
-  if (!b.first_name || !b.last_name || !b.age || !b.address || !b.grade_level) throw bad('Name, age, address and grade level are required');
+  const missing = [['first_name', 'first name'], ['last_name', 'last name'], ['age', 'age'], ['address', 'address'], ['grade_level', 'grade level']].filter(([k]) => !b[k] || (typeof b[k] === 'string' && !b[k].trim())).map(x => x[1]);
+  if (missing.length) throw bad('Missing: ' + missing.join(', '));
   const y = await curYear(), id = q.user.id, no = await nextId(sb, 'student', y.label);
   let section_id = null;
   if (b.section_id) { const { data: sec } = await sb.from('sections').select('id,grade_level').eq('id', b.section_id).maybeSingle(); if (sec && sec.grade_level === b.grade_level) section_id = sec.id; }
@@ -93,7 +95,24 @@ app.post('/api/onboarding/student', wrap(async (q, r) => {
 }));
 app.post('/api/onboarding/parent', wrap(async (q, r) => {
   if (!q.body.full_name) throw bad('Name is required');
-  await sb.from('profiles').upsert({ id: q.user.id, role: 'parent', email: q.user.email, full_name: q.body.full_name, photo_url: q.body.photo_url, onboarded: true }); r.json({ ok: true });
+  await sb.from('profiles').upsert({ id: q.user.id, role: 'parent', email: q.user.email, full_name: q.body.full_name, photo_url: q.body.photo_url, contact_no: q.body.contact_no || null, onboarded: true }); r.json({ ok: true });
+}));
+// View/edit your OWN profile. IDs, device ID, grade/section for students are not editable here.
+app.patch('/api/me', wrap(async (q, r) => {
+  const p = q.profile; if (!p?.onboarded) throw bad('Finish registration first');
+  const b = q.body || {};
+  if (b.photo_url !== undefined) {
+    if (b.photo_url !== null && !(typeof b.photo_url === 'string' && b.photo_url.startsWith(process.env.SUPABASE_URL))) throw bad('Invalid photo');
+    await sb.from('profiles').update({ photo_url: b.photo_url }).eq('id', q.user.id);
+  }
+  const f = cleanProfile(p.role, b);
+  if (p.role === 'parent') { if (Object.keys(f).length) await sb.from('profiles').update(f).eq('id', q.user.id); }
+  else if (Object.keys(f).length) {
+    const { data, error } = await sb.from(p.role === 'student' ? 'students' : 'teachers').update(f).eq('id', q.user.id).select('first_name,last_name').single();
+    if (error) throw error;
+    await sb.from('profiles').update({ full_name: `${data.first_name} ${data.last_name}` }).eq('id', q.user.id);
+  }
+  r.json({ ok: true });
 }));
 app.post('/api/device-token', wrap(async (q, r) => { await sb.from('profiles').update({ fcm_token: q.body.token }).eq('id', q.user.id); r.json({ ok: true }); }));
 

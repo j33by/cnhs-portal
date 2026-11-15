@@ -11,3 +11,16 @@ assert.ok(R.isWeekday('2026-11-13') && !R.isWeekday('2026-11-14'));
 assert.strictEqual(B.summarizeTimes(['14:19:32', '14:23:11']).time_out, null);          // double tap, not "left"
 assert.strictEqual(B.summarizeTimes(['14:19:32', '15:20:02']).time_out, '15:20:02');
 console.log('all record/biometric tests passed');
+// ---- profile validation
+const { cleanProfile } = require('./services/profile');
+const throws = (fn, re) => { try { fn(); } catch (e) { assert.ok(re.test(e.message), e.message); return; } assert.fail('expected an error'); };
+assert.deepStrictEqual(cleanProfile('student', { first_name: ' Ana ', age: '15', sex: 'F', birthdate: '2011-03-02', lrn: '' }), { first_name: 'Ana', age: 15, sex: 'F', birthdate: '2011-03-02', lrn: null });
+throws(() => cleanProfile('student', { age: 'abc' }), /Age/);
+throws(() => cleanProfile('student', { first_name: '  ' }), /required/);
+throws(() => cleanProfile('student', { birthdate: '2011/3/2' }), /Birthdate/);
+assert.deepStrictEqual(cleanProfile('student', { student_no: 'HACK', biometric_id: 9, section_id: 'x' }), {});          // IDs / section cannot be edited
+throws(() => cleanProfile('teacher', { grade_levels: [7, 7] }), /grade levels/);
+throws(() => cleanProfile('teacher', { grade_levels: [] }), /grade levels/);
+assert.deepStrictEqual(cleanProfile('teacher', { grade_levels: [8, 7], teacher_no: 'T-1' }), { grade_levels: [8, 7] });
+assert.deepStrictEqual(cleanProfile('parent', { full_name: 'Mama Ana', contact_no: '0917' }), { full_name: 'Mama Ana', contact_no: '0917' });
+console.log('profile validation tests passed');

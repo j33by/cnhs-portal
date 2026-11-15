@@ -47,7 +47,7 @@ class _TeacherForm extends StatefulWidget { const _TeacherForm(); @override Stat
 class _TF extends State<_TeacherForm> with _FormHelpers {
   List<Map<String, String>> subjects = []; final grades = <int>{};
   @override
-  Widget build(BuildContext c) => Form(key: key, child: ListView(padding: const EdgeInsets.all(20), children: [
+  Widget build(BuildContext c) => Form(key: key, child: SingleChildScrollView(padding: const EdgeInsets.all(20), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Center(child: AvatarPicker(onUploaded: (u) => v['photo_url'] = u)), const SizedBox(height: 16),
         tf('first_name', 'First name'), tf('last_name', 'Last name'), tf('birthdate', 'Birthdate (YYYY-MM-DD)', req: false), tf('address', 'Address', max: 2), tf('contact_no', 'Contact number', type: TextInputType.phone),
         Text('Subjects you handle (up to 5) *', style: Theme.of(c).textTheme.titleSmall), const SizedBox(height: 8),
@@ -61,7 +61,7 @@ class _TF extends State<_TeacherForm> with _FormHelpers {
           if (grades.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pick at least one grade level'))); return; }
           submit('/api/onboarding/teacher', fix: () => {'subjects': filled, 'grade_levels': grades.toList()});
         }),
-      ]));
+      ])));
 }
 
 class _StudentForm extends StatefulWidget { const _StudentForm(); @override State<_StudentForm> createState() => _SF(); }
@@ -75,7 +75,7 @@ class _SF extends State<_StudentForm> with _FormHelpers {
     } catch (_) {}
   }
   @override
-  Widget build(BuildContext c) => Form(key: key, child: ListView(padding: const EdgeInsets.all(20), children: [
+  Widget build(BuildContext c) => Form(key: key, child: SingleChildScrollView(padding: const EdgeInsets.all(20), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Center(child: AvatarPicker(onUploaded: (u) => v['photo_url'] = u)), const SizedBox(height: 16),
         tf('first_name', 'First name'), tf('middle_name', 'Middle name', req: false), tf('last_name', 'Last name'),
         tf('age', 'Age', type: TextInputType.number), tf('birthdate', 'Birthdate (YYYY-MM-DD)', req: false), tf('address', 'Address', max: 2), tf('lrn', 'LRN (12 digits)', req: false, type: TextInputType.number),
@@ -88,16 +88,16 @@ class _SF extends State<_StudentForm> with _FormHelpers {
         const SizedBox(height: 12),
         tf('guardian_name', 'Parent / guardian name', req: false), tf('guardian_contact', 'Guardian contact', req: false, type: TextInputType.phone),
         const SizedBox(height: 12), submitBtn(() => submit('/api/onboarding/student', fix: () => {'grade_level': grade, 'sex': sex, 'section_id': sectionId, 'age': int.tryParse('${v['age'] ?? ''}')})),
-      ]));
+      ])));
 }
 
 class _ParentForm extends StatefulWidget { const _ParentForm(); @override State<_ParentForm> createState() => _PF(); }
 class _PF extends State<_ParentForm> with _FormHelpers {
   @override
-  Widget build(BuildContext c) => Form(key: key, child: ListView(padding: const EdgeInsets.all(20), children: [
+  Widget build(BuildContext c) => Form(key: key, child: SingleChildScrollView(padding: const EdgeInsets.all(20), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Center(child: AvatarPicker(onUploaded: (u) => v['photo_url'] = u)), const SizedBox(height: 16),
         tf('full_name', 'Your full name'), tf('contact_no', 'Contact number', req: false, type: TextInputType.phone),
         const Text('After registering you can request to link your son or daughter using their Student ID.'), const SizedBox(height: 16),
         submitBtn(() => submit('/api/onboarding/parent')),
-      ]));
+      ])));
 }
