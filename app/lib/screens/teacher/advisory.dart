@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../core/api.dart';
 import '../../widgets/shared.dart';
+import 'device_links.dart';
+import 'homeroom_tab.dart';
 
 Future<String?> _ask(BuildContext c, String title, String label) async {
   final t = TextEditingController();
@@ -32,8 +34,8 @@ class SectionScreen extends StatelessWidget {
   final Map<String, dynamic> section; const SectionScreen({super.key, required this.section});
   @override
   Widget build(BuildContext c) => DefaultTabController(length: 3, child: Scaffold(
-        appBar: AppBar(title: Text('Grade ${section['grade_level']} - ${section['name']}'), bottom: const TabBar(tabs: [Tab(text: 'Students'), Tab(text: 'Schedule'), Tab(text: 'Grades')])),
-        body: TabBarView(children: [_Students(section['id']), _Schedule(section['id']), _Grades(section)])));
+        appBar: AppBar(title: Text('Grade ${section['grade_level']} - ${section['name']}'), bottom: const TabBar(tabs: [Tab(text: 'Students'), Tab(text: 'Schedule'), Tab(text: 'Homeroom')])),
+        body: TabBarView(children: [_Students(section['id']), _Schedule(section['id']), HomeroomTab(sectionId: section['id'])])));
 }
 
 class _Students extends StatelessWidget {
@@ -46,6 +48,7 @@ class _Students extends StatelessWidget {
           builder: (c, s) => !s.hasData ? const Center(child: CircularProgressIndicator()) : ListView(children: [for (final x in s.data!) ListTile(
             title: Text('${x['last_name']}, ${x['first_name']}'), subtitle: Text('${x['student_no']}  ·  device #${x['biometric_id']}'),
             trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+              IconButton(icon: const Icon(Icons.fingerprint), tooltip: 'Link existing device ID', onPressed: () => linkDeviceDialog(c, studentId: x['id'], studentName: '${x['first_name']} ${x['last_name']}')),
               IconButton(icon: const Icon(Icons.edit), onPressed: () async { final a = await _ask(c, 'Edit address', 'Address'); if (a != null && c.mounted) _run(c, Api.patch('/api/students/${x['id']}', {'address': a})); }),
               IconButton(icon: const Icon(Icons.person_remove, color: Colors.red), onPressed: () => _run(c, Api.delete('/api/sections/$sid/students/${x['id']}')))]),
             onTap: () => Navigator.push(c, MaterialPageRoute(builder: (_) => Scaffold(appBar: AppBar(title: Text('${x['first_name']} attendance')), body: AttendanceView(x['id'])))))])),
@@ -76,24 +79,4 @@ class _Schedule extends StatelessWidget {
   }
   @override
   Widget build(BuildContext c) => Scaffold(floatingActionButton: FloatingActionButton(child: const Icon(Icons.add), onPressed: () => _add(c)), body: ScheduleView(sid));
-}
-
-class _Grades extends StatefulWidget { final Map<String, dynamic> section; const _Grades(this.section); @override State<_Grades> createState() => _GS(); }
-class _GS extends State<_Grades> {
-  String? subject; int term = 1; final ctl = <String, TextEditingController>{};
-  @override
-  Widget build(BuildContext c) => FutureBuilder<List<List<Map<String, dynamic>>>>(
-        future: Future.wait([sb.from('subjects').select(), sb.from('students').select('id,first_name,last_name').eq('section_id', widget.section['id']).order('last_name')]),
-        builder: (c, s) {
-          if (!s.hasData) return const Center(child: CircularProgressIndicator());
-          final subs = s.data![0], studs = s.data![1];
-          return Column(children: [
-            Padding(padding: const EdgeInsets.all(12), child: Row(children: [
-              Expanded(child: DropdownButtonFormField<String>(value: subject, hint: const Text('Subject'), items: [for (final x in subs) DropdownMenuItem(value: x['id'] as String, child: Text(x['name']))], onChanged: (v) => setState(() => subject = v))),
-              const SizedBox(width: 12), DropdownButton<int>(value: term, items: [for (var t = 1; t <= 4; t++) DropdownMenuItem(value: t, child: Text('Q$t'))], onChanged: (v) => setState(() => term = v!))])),
-            Expanded(child: ListView(children: [for (final st in studs) ListTile(title: Text('${st['last_name']}, ${st['first_name']}'), trailing: SizedBox(width: 80, child: TextField(controller: ctl.putIfAbsent(st['id'], () => TextEditingController()), keyboardType: TextInputType.number, decoration: const InputDecoration(hintText: '—'))))])),
-            Padding(padding: const EdgeInsets.all(12), child: Row(children: [
-              Expanded(child: OutlinedButton(onPressed: subject == null ? null : () => _run(c, Api.post('/api/grades', {'grades': [for (final e in ctl.entries) if (num.tryParse(e.value.text) != null) {'student_id': e.key, 'subject_id': subject, 'section_id': widget.section['id'], 'term': term, 'grade': num.parse(e.value.text)}]})), child: const Text('Save'))),
-              const SizedBox(width: 12), Expanded(child: FilledButton(onPressed: subject == null ? null : () => _run(c, Api.post('/api/grades/release', {'section_id': widget.section['id'], 'subject_id': subject, 'term': term})), child: const Text('Release & notify')))]))]);
-        });
 }

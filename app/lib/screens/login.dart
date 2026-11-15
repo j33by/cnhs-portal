@@ -1,7 +1,10 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../core/api.dart';
 import '../core/config.dart';
+import '../core/messenger.dart';
+import '../core/windows_login.dart';
 
 class LoginScreen extends StatelessWidget {
   const LoginScreen({super.key});
@@ -16,7 +19,12 @@ class LoginScreen extends StatelessWidget {
           FilledButton.icon(
             icon: const Icon(Icons.login), label: const Text('Continue with Google'),
             style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
-            onPressed: () => sb.auth.signInWithOAuth(OAuthProvider.google, redirectTo: Config.oauthRedirect, authScreenLaunchMode: LaunchMode.externalApplication),
+            onPressed: () async {
+              try {
+                if (Platform.isWindows) { await signInWithGoogleWindows(); }
+                else { await sb.auth.signInWithOAuth(OAuthProvider.google, redirectTo: Config.mobileRedirect); }
+              } catch (e) { toast('$e'); }
+            },
           ),
           const SizedBox(height: 12),
           const Text('First time? You will fill in a short form after signing in.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12)),

@@ -25,18 +25,16 @@ function parseEmployeeForm(buf) {
   return people;
 }
 
-// Group punches per person per day, first = IN, last = OUT (the device has no in/out flag).
+const mins = t => { const [h, m] = t.split(':'); return +h * 60 + +m; };
+// The terminal has no IN/OUT flag: first punch = IN. Last punch counts as OUT only if it is 30+ min later,
+// so a double-tap right after arriving is not reported as "left school".
+function summarizeTimes(times) {
+  const t = [...times].sort();
+  return { time_in: t[0], time_out: t.length > 1 && mins(t[t.length - 1]) - mins(t[0]) >= 30 ? t[t.length - 1] : null, punches: t.length };
+}
 function dailyFromPunches(punches) {
   const map = new Map();
-  for (const p of punches) {
-    const k = p.biometric_id + '|' + p.date;
-    if (!map.has(k)) map.set(k, { biometric_id: p.biometric_id, date: p.date, times: [] });
-    map.get(k).times.push(p.time);
-  }
-  return [...map.values()].map(d => {
-    d.times.sort();
-    return { biometric_id: d.biometric_id, date: d.date, time_in: d.times[0],
-             time_out: d.times.length > 1 ? d.times[d.times.length - 1] : null, punches: d.times.length };
-  });
+  for (const p of punches) { const k = p.biometric_id + '|' + p.date; if (!map.has(k)) map.set(k, { biometric_id: p.biometric_id, date: p.date, times: [] }); map.get(k).times.push(p.time); }
+  return [...map.values()].map(d => ({ biometric_id: d.biometric_id, date: d.date, ...summarizeTimes(d.times) }));
 }
-module.exports = { parseLogs, parseEmployeeForm, dailyFromPunches };
+module.exports = { parseLogs, parseEmployeeForm, dailyFromPunches, summarizeTimes };

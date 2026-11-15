@@ -57,7 +57,7 @@ class ScheduleView extends StatelessWidget {
       builder: (c, s) {
         if (!s.hasData) return const Center(child: CircularProgressIndicator());
         return FutureBuilder<List<List<Map<String, dynamic>>>>(
-          future: Future.wait([sb.from('subjects').select(), sb.from('teachers').select('id,first_name,last_name')]),
+          future: Future.wait<List<Map<String, dynamic>>>([sb.from('subjects').select(), sb.from('teacher_names').select('id,first_name,last_name')]),
           builder: (c, m) {
             final sub = {for (final x in m.data?[0] ?? []) x['id']: x['name']}, tea = {for (final x in m.data?[1] ?? []) x['id']: '${x['first_name']} ${x['last_name']}'};
             return ListView(children: [for (var d = 1; d <= 5; d++) ...[

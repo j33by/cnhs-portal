@@ -63,7 +63,14 @@ class _TF extends State<_TeacherForm> with _FormHelpers {
 
 class _StudentForm extends StatefulWidget { const _StudentForm(); @override State<_StudentForm> createState() => _SF(); }
 class _SF extends State<_StudentForm> with _FormHelpers {
-  int grade = 7; String sex = 'M';
+  int grade = 7; String sex = 'M'; String? sectionId; List<Map<String, dynamic>> sections = [];
+  @override void initState() { super.initState(); _loadSections(); }
+  Future<void> _loadSections() async {
+    try {
+      final r = await sb.from('sections').select('id,name,school_years!inner(is_current)').eq('grade_level', grade).eq('school_years.is_current', true).order('name');
+      if (mounted) setState(() { sections = r; sectionId = null; });
+    } catch (_) {}
+  }
   @override
   Widget build(BuildContext c) => Form(key: key, child: ListView(padding: const EdgeInsets.all(20), children: [
         Center(child: AvatarPicker(onUploaded: (u) => v['photo_url'] = u)), const SizedBox(height: 16),
@@ -71,10 +78,13 @@ class _SF extends State<_StudentForm> with _FormHelpers {
         tf('age', 'Age', type: TextInputType.number), tf('birthdate', 'Birthdate (YYYY-MM-DD)', req: false), tf('address', 'Address', max: 2), tf('lrn', 'LRN (12 digits)', req: false, type: TextInputType.number),
         DropdownButtonFormField<String>(value: sex, decoration: const InputDecoration(labelText: 'Sex', border: OutlineInputBorder()), items: const [DropdownMenuItem(value: 'M', child: Text('Male')), DropdownMenuItem(value: 'F', child: Text('Female'))], onChanged: (x) => sex = x!),
         const SizedBox(height: 12),
-        DropdownButtonFormField<int>(value: grade, decoration: const InputDecoration(labelText: 'Grade level *', border: OutlineInputBorder()), items: [for (var g = 7; g <= 12; g++) DropdownMenuItem(value: g, child: Text('Grade $g'))], onChanged: (x) => grade = x!),
-        const SizedBox(height: 12), tf('section_name', 'Section (as named by your adviser)'),
+        DropdownButtonFormField<int>(value: grade, decoration: const InputDecoration(labelText: 'Grade level *', border: OutlineInputBorder()), items: [for (var g = 7; g <= 12; g++) DropdownMenuItem(value: g, child: Text('Grade $g'))], onChanged: (x) { grade = x!; _loadSections(); }),
+        const SizedBox(height: 12),
+        DropdownButtonFormField<String?>(value: sectionId, decoration: const InputDecoration(labelText: 'Section', border: OutlineInputBorder()),
+          items: [const DropdownMenuItem<String?>(value: null, child: Text('Not sure yet (my adviser will add me)')), for (final s in sections) DropdownMenuItem<String?>(value: s['id'] as String, child: Text('${s['name']}'))], onChanged: (x) => sectionId = x),
+        const SizedBox(height: 12),
         tf('guardian_name', 'Parent / guardian name', req: false), tf('guardian_contact', 'Guardian contact', req: false, type: TextInputType.phone),
-        const SizedBox(height: 12), submitBtn(() => submit('/api/onboarding/student', fix: () => {'grade_level': grade, 'sex': sex, 'age': int.tryParse(v['age'] ?? '')})),
+        const SizedBox(height: 12), submitBtn(() => submit('/api/onboarding/student', fix: () => {'grade_level': grade, 'sex': sex, 'section_id': sectionId, 'age': int.tryParse('${v['age'] ?? ''}')})),
       ]));
 }
 

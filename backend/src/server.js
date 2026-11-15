@@ -1,10 +1,11 @@
 const express = require('express'), cors = require('cors'), multer = require('multer');
 const { createClient } = require('@supabase/supabase-js');
 const { nextId } = require('./services/ids');
-const { ingestLogs, closeDay } = require('./services/attendance');
+const { ingestLogs, closeDay, relinkPunches } = require('./services/attendance');
 const { parseEmployeeForm, } = require('./services/biometric');
 const { buildEmployeeForm } = require('./services/xlsWriter');
 const { notify } = require('./services/notify');
+const mountClasses = require('./routes/classes');
 
 const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 const app = express(); app.use(cors()); app.use(express.json({ limit: '2mb' }));
@@ -22,8 +23,16 @@ async function auth(req, _res, next) {
 }
 const teacherOnly = (q, _r, n) => n(q.profile?.role === 'teacher' ? undefined : bad('Teachers only', 403));
 const curYear = async () => (await sb.from('school_years').select('*').eq('is_current', true).single()).data;
-const freeBioId = async () => { const [{ data: a }, { data: b }] = await Promise.all([sb.from('students').select('biometric_id'), sb.from('teachers').select('biometric_id')]);
-  const used = new Set([...a, ...b].map(x => x.biometric_id)); let i = 1; while (used.has(i)) i++; return i; };
+// Device (fingerprint terminal) IDs are separate from school IDs. New people get a number ABOVE every ID the terminal already uses,
+// so they can never collide with someone already enrolled there. Existing device IDs are attached with /api/device/link.
+const freeBioId = async () => {
+  let max = 0;
+  for (const [t, c] of [['students', 'biometric_id'], ['teachers', 'biometric_id'], ['device_people', 'biometric_id'], ['attendance', 'biometric_id']]) {
+    const { data } = await sb.from(t).select(c).not(c, 'is', null).order(c, { ascending: false }).limit(1); if (data?.[0]) max = Math.max(max, data[0][c]); }
+  return max + 1;
+};
+const adviserOfStudent = async (uid, sid) => { const { data } = await sb.from('students').select('section_id,sections(adviser_id)').eq('id', sid).maybeSingle();
+  if (!data) throw bad('Student not found', 404); if (data.section_id && data.sections?.adviser_id !== uid) throw bad("Only the student's adviser can change this record", 403); };
 
 app.get('/health', (_q, r) => r.json({ ok: true }));
 app.use('/api', wrap(async (q, r, n) => auth(q, r, n)));
@@ -45,7 +54,7 @@ app.post('/api/onboarding/student', wrap(async (q, r) => {
   if (!b.first_name || !b.last_name || !b.age || !b.address || !b.grade_level) throw bad('Name, age, address and grade level are required');
   const y = await curYear(), id = q.user.id, no = await nextId(sb, 'student', y.label);
   let section_id = null;
-  if (b.section_name) { const { data: s } = await sb.from('sections').select('id').eq('school_year_id', y.id).eq('grade_level', b.grade_level).ilike('name', b.section_name).maybeSingle(); section_id = s?.id || null; }
+  if (b.section_id) { const { data: sec } = await sb.from('sections').select('id,grade_level').eq('id', b.section_id).maybeSingle(); if (sec && sec.grade_level === b.grade_level) section_id = sec.id; }
   await sb.from('profiles').upsert({ id, role: 'student', email: q.user.email, full_name: `${b.first_name} ${b.last_name}`, photo_url: b.photo_url, onboarded: true });
   const { error } = await sb.from('students').insert({ id, student_no: no, first_name: b.first_name, middle_name: b.middle_name, last_name: b.last_name, age: b.age, sex: b.sex,
     birthdate: b.birthdate, address: b.address, lrn: b.lrn, grade_level: b.grade_level, section_id, guardian_name: b.guardian_name, guardian_contact: b.guardian_contact, biometric_id: await freeBioId() });
@@ -97,10 +106,11 @@ app.post('/api/sections/:id/students', teacherOnly, wrap(async (q, r) => {      
   await notify(sb, [st.id], { kind: 'section', title: 'Added to a section', body: `You are now in Grade ${s.grade_level} - ${s.name}.` }); r.json({ ok: true }); }));
 app.delete('/api/sections/:id/students/:sid', teacherOnly, wrap(async (q, r) => { await mySection(q); await sb.from('students').update({ section_id: null }).eq('id', q.params.sid); r.json({ ok: true }); }));
 app.patch('/api/students/:id', teacherOnly, wrap(async (q, r) => {
+  await adviserOfStudent(q.user.id, q.params.id);
   const allow = ['first_name', 'middle_name', 'last_name', 'age', 'sex', 'address', 'guardian_name', 'guardian_contact', 'grade_level', 'status'];
   const patch = Object.fromEntries(Object.entries(q.body).filter(([k]) => allow.includes(k)));
   const { error } = await sb.from('students').update(patch).eq('id', q.params.id); if (error) throw error; r.json({ ok: true }); }));
-app.delete('/api/students/:id', teacherOnly, wrap(async (q, r) => { await sb.from('students').update({ status: 'dropped', section_id: null }).eq('id', q.params.id); r.json({ ok: true }); }));   // soft delete: keeps grades/attendance, frees device row
+app.delete('/api/students/:id', teacherOnly, wrap(async (q, r) => { await adviserOfStudent(q.user.id, q.params.id); await sb.from('students').update({ status: 'dropped', section_id: null }).eq('id', q.params.id); r.json({ ok: true }); }));   // soft delete: keeps grades/attendance, frees device row
 
 app.post('/api/sections/:id/subjects', teacherOnly, wrap(async (q, r) => {          // assign a teacher to a subject of this section
   await mySection(q); const { code, name, teacher_id } = q.body;
@@ -118,28 +128,39 @@ app.delete('/api/schedules/:id', teacherOnly, wrap(async (q, r) => {
   if (!s) throw bad('Schedule not found', 404); if (s.sections.adviser_id !== q.user.id) throw bad('Only the adviser can change this schedule', 403);
   await sb.from('schedules').delete().eq('id', q.params.id); r.json({ ok: true }); }));
 
-// ============ Grades ============
-app.post('/api/grades', teacherOnly, wrap(async (q, r) => {
-  const y = await curYear(); const rows = q.body.grades.map(g => ({ ...g, school_year_id: y.id, entered_by: q.user.id, updated_at: new Date().toISOString() }));
-  const { error } = await sb.from('grades').upsert(rows, { onConflict: 'student_id,subject_id,school_year_id,term' }); if (error) throw error; r.json({ saved: rows.length }); }));
-app.post('/api/grades/release', teacherOnly, wrap(async (q, r) => {
-  const y = await curYear(); const { section_id, subject_id, term } = q.body;
-  const { data } = await sb.from('grades').update({ released: true }).match({ section_id, subject_id, term, school_year_id: y.id }).select('student_id');
-  for (const g of data || []) { const { data: l } = await sb.from('parent_links').select('parent_id').eq('student_id', g.student_id).eq('status', 'approved');
-    await notify(sb, [g.student_id, ...(l || []).map(x => x.parent_id)], { kind: 'grades', title: 'New grades released', body: `Term ${term} grades are now available.` }); }
-  r.json({ released: data?.length || 0 }); }));
+mountClasses(app, { sb, wrap, bad, teacherOnly, curYear });   // class record, subject + homeroom attendance, grades
 
 // ============ USB / biometric sync (called by the Windows app) ============
 app.post('/api/usb/ingest', teacherOnly, up.fields([{ name: 'logs', maxCount: 1 }, { name: 'employee', maxCount: 1 }]), wrap(async (q, r) => {
   const out = {}; if (q.files?.logs) out.attendance = await ingestLogs(sb, q.files.logs[0].buffer.toString('utf8'));
-  if (q.files?.employee) out.device_people = parseEmployeeForm(q.files.employee[0].buffer).length; r.json(out); }));
+  if (q.files?.employee) { const ppl = parseEmployeeForm(q.files.employee[0].buffer);
+    if (ppl.length) await sb.from('device_people').upsert(ppl.map(p => ({ biometric_id: p.biometric_id, name: p.name, dept_no: p.dept_no, last_seen: new Date().toISOString() })), { onConflict: 'biometric_id' });
+    out.device_people = ppl.length; }
+  r.json(out); }));
+// Attach a device ID that already exists on the terminal to a student or teacher (or detach it)
+app.post('/api/device/link', teacherOnly, wrap(async (q, r) => {
+  const { biometric_id, kind, id } = q.body; if (!Number.isInteger(biometric_id) || biometric_id < 1) throw bad('Invalid device ID');
+  const table = kind === 'teacher' ? 'teachers' : 'students';
+  const { data: used } = await sb.from('students').select('id').eq('biometric_id', biometric_id).neq('id', id || '00000000-0000-0000-0000-000000000000');
+  const { data: usedT } = await sb.from('teachers').select('id').eq('biometric_id', biometric_id).neq('id', id || '00000000-0000-0000-0000-000000000000');
+  if (used?.length || usedT?.length) throw bad('That device ID is already linked to someone else');
+  const { data: me, error } = await sb.from(table).update({ biometric_id }).eq('id', id).select('id,first_name,section_id,sections(name)').single(); if (error) throw error;
+  if (kind !== 'teacher') await relinkPunches(sb, me, biometric_id);
+  else await sb.from('attendance').update({ teacher_id: id }).eq('biometric_id', biometric_id).is('teacher_id', null);
+  r.json({ ok: true });
+}));
+app.post('/api/device/unlink', teacherOnly, wrap(async (q, r) => {
+  const { kind, id } = q.body; await sb.from(kind === 'teacher' ? 'teachers' : 'students').update({ biometric_id: null }).eq('id', id); r.json({ ok: true }); }));
 app.get('/api/usb/state', teacherOnly, wrap(async (_q, r) => r.json((await sb.from('usb_sync_state').select('*').eq('id', 1).single()).data)));
 app.get('/api/usb/employee-form', teacherOnly, wrap(async (_q, r) => {
   const [{ data: st }, { data: te }, { data: se }, { data: sc }] = await Promise.all([
-    sb.from('students').select('biometric_id,first_name,last_name,sections(biometric_dept_no)').eq('status', 'enrolled'),
-    sb.from('teachers').select('biometric_id,first_name,last_name'), sb.from('sections').select('name,biometric_dept_no'),
+    sb.from('students').select('biometric_id,first_name,last_name,sections(biometric_dept_no)').eq('status', 'enrolled').not('biometric_id', 'is', null),
+    sb.from('teachers').select('biometric_id,first_name,last_name').not('biometric_id', 'is', null), sb.from('sections').select('name,biometric_dept_no'),
     sb.from('schedules').select('day_of_week,start_time,end_time,sections(biometric_dept_no)')]);
-  const people = [...st.map(s => ({ biometric_id: s.biometric_id, name: `${s.first_name} ${s.last_name}`.slice(0, 24), dept_no: s.sections?.biometric_dept_no || null })),
+  const { data: dev } = await sb.from('device_people').select('*');
+  const linked = new Set([...st, ...te].map(x => x.biometric_id));
+  const people = [...(dev || []).filter(d => !linked.has(d.biometric_id)).map(d => ({ biometric_id: d.biometric_id, name: (d.name || '').slice(0, 24), dept_no: d.dept_no })),
+    ...st.map(s => ({ biometric_id: s.biometric_id, name: `${s.first_name} ${s.last_name}`.slice(0, 24), dept_no: s.sections?.biometric_dept_no || null })),
     ...te.map(t => ({ biometric_id: t.biometric_id, name: `${t.first_name} ${t.last_name}`.slice(0, 24), dept_no: null }))].sort((a, b) => a.biometric_id - b.biometric_id);
   const { buffer, shifts } = buildEmployeeForm({ people, sections: se.map(s => ({ dept_no: s.biometric_dept_no, name: s.name })),
     slots: sc.filter(s => s.sections).map(s => ({ dept_no: s.sections.biometric_dept_no, day_of_week: s.day_of_week, start: s.start_time.slice(0, 5), end: s.end_time.slice(0, 5) })), start: new Date() });
@@ -148,6 +169,4 @@ app.get('/api/usb/employee-form', teacherOnly, wrap(async (_q, r) => {
 app.post('/api/usb/written', teacherOnly, wrap(async (q, r) => { await sb.from('usb_sync_state').update({ dirty: false }).eq('id', 1).lte('version', q.body.version); r.json({ ok: true }); }));
 app.post('/api/attendance/close-day', teacherOnly, wrap(async (q, r) => r.json(await closeDay(sb, q.body.date || new Date(Date.now() + 8 * 36e5).toISOString().slice(0, 10)))));
 
-// Render free instances sleep, so also close the day at 17:30 PH time while awake
-setInterval(async () => { const n = new Date(Date.now() + 8 * 36e5); if (n.getUTCHours() === 17 && n.getUTCMinutes() === 30) closeDay(sb, n.toISOString().slice(0, 10)).catch(console.error); }, 60000);
 app.listen(process.env.PORT || 3000, () => console.log('CNHS API up'));

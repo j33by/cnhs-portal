@@ -23,6 +23,8 @@ class Api {
   }
   static Future<dynamic> post(String p, [Map<String, dynamic>? b]) async =>
       _out(await http.post(Uri.parse('${Config.apiUrl}$p'), headers: _h, body: jsonEncode(b ?? {})));
+  static Future<dynamic> put(String p, Map<String, dynamic> b) async =>
+      _out(await http.put(Uri.parse('${Config.apiUrl}$p'), headers: _h, body: jsonEncode(b)));
   static Future<dynamic> patch(String p, Map<String, dynamic> b) async =>
       _out(await http.patch(Uri.parse('${Config.apiUrl}$p'), headers: _h, body: jsonEncode(b)));
   static Future<dynamic> delete(String p) async => _out(await http.delete(Uri.parse('${Config.apiUrl}$p'), headers: _h));

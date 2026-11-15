@@ -4,6 +4,7 @@ import '../../core/api.dart';
 import '../../core/usb_sync.dart';
 import '../../widgets/shared.dart';
 import 'advisory.dart';
+import 'classes.dart';
 import 'bind_requests.dart';
 import 'usb_panel.dart';
 
@@ -17,6 +18,7 @@ class _T extends State<TeacherHome> {
     final desktop = Platform.isWindows;
     final tabs = <(String, IconData, Widget)>[
       ('Advisory', Icons.groups, AdvisoryScreen(teacherId: widget.profile['id'])),
+      ('My classes', Icons.menu_book, MyClasses(teacherId: widget.profile['id'])),
       ('Requests', Icons.link, const BindRequests()),
       if (desktop) ('Biometric USB', Icons.usb, UsbPanel(usb: usb)),
       ('Alerts', Icons.notifications, const NotificationsView()),
