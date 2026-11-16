@@ -36,7 +36,7 @@ class _ClassStudentsState extends State<ClassStudentsTab> {
       final ab = <String, int>{};
       for (final a in r[0]) { final k = a['student_id'] as String; ab[k] = (ab[k] ?? 0) + 1; }
       if (mounted) setState(() { section = sec; adviserName = adv; absences = ab; free = r[1].isEmpty ? 10 : r[1].first['free_absences'] as int; });
-    } catch (e) { toast('$e'); }
+    } catch (e) { toastError(e); }
   }
 
   Future<void> _ensurePhotos(List<String> ids) async {
@@ -50,7 +50,7 @@ class _ClassStudentsState extends State<ClassStudentsTab> {
   }
 
   Future<void> _claim() async {
-    try { await Api.post('/api/sections/${widget.sectionId}/claim'); toast('You are now the adviser of this section'); await _loadExtras(); } catch (e) { toast('$e'); }
+    try { await Api.post('/api/sections/${widget.sectionId}/claim'); toast('You are now the adviser of this section'); await _loadExtras(); } catch (e) { toastError(e); }
   }
 
   String _name(Map<String, dynamic> x) => '${x['last_name']}, ${x['first_name']}${(x['middle_name'] ?? '').toString().isEmpty ? '' : ' ${x['middle_name']}'}';

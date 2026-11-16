@@ -43,7 +43,7 @@ class _AttState extends State<AttendanceTab> {
       for (final a in r[2]) { final k = a['student_id'] as String; abs[k] = (abs[k] ?? 0) + 1; }
       free = r[3].isEmpty ? 10 : r[3].first['free_absences'] as int;
       apply = r[3].isEmpty ? false : r[3].first['apply_to_record'] as bool;
-    } catch (e) { toast('$e'); }
+    } catch (e) { toastError(e); }
     if (mounted) setState(() => loading = false);
   }
 
@@ -64,7 +64,7 @@ class _AttState extends State<AttendanceTab> {
     try {
       if (saved) { await Api.delete('/api/class-attendance?section_id=${widget.sectionId}&subject_id=${widget.subjectId}&date=$d'); await _load(); }
       else { setState(() => dates = dates.where((x) => x != d).toList()); }
-    } catch (e) { toast('$e'); }
+    } catch (e) { toastError(e); }
   }
 
   Future<void> _save() async {
@@ -73,7 +73,7 @@ class _AttState extends State<AttendanceTab> {
       final r = await Api.post('/api/class-attendance', {'section_id': widget.sectionId, 'subject_id': widget.subjectId, 'dates': payload});
       toast('Attendance saved (${r['saved']} marks)${(r['dropped'] ?? 0) > 0 ? '. ${r['dropped']} student(s) exceeded the absence limit and were marked Dropped.' : ''}');
       await _load();
-    } catch (e) { toast('$e'); }
+    } catch (e) { toastError(e); }
   }
 
   Future<void> _remark(String d, Map<String, dynamic> s) async {
@@ -92,7 +92,7 @@ class _AttState extends State<AttendanceTab> {
       ]),
       actions: [TextButton(onPressed: () => Navigator.pop(c2), child: const Text('Cancel')), FilledButton(onPressed: () async {
         Navigator.pop(c2);
-        try { await Api.put('/api/class-policy', {'section_id': widget.sectionId, 'subject_id': widget.subjectId, 'free_absences': int.tryParse(f.text), 'apply_to_record': ap}); await _load(); } catch (e) { toast('$e'); }
+        try { await Api.put('/api/class-policy', {'section_id': widget.sectionId, 'subject_id': widget.subjectId, 'free_absences': int.tryParse(f.text), 'apply_to_record': ap}); await _load(); } catch (e) { toastError(e); }
       }, child: const Text('Save'))])));
   }
 

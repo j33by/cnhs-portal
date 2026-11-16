@@ -1,15 +1,17 @@
 import 'package:flutter/material.dart';
 import '../../core/api.dart';
+import '../../core/messenger.dart';
 import '../../widgets/shared.dart';
 import 'device_links.dart';
 import 'homeroom_tab.dart';
+import '../../widgets/keep_alive.dart';
 
 Future<String?> _ask(BuildContext c, String title, String label) async {
   final t = TextEditingController();
   return showDialog<String>(context: c, builder: (_) => AlertDialog(title: Text(title), content: TextField(controller: t, autofocus: true, decoration: InputDecoration(labelText: label)),
       actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(c, t.text.trim()), child: const Text('OK'))]));
 }
-void _run(BuildContext c, Future<dynamic> f) async { try { await f; } catch (e) { if (c.mounted) ScaffoldMessenger.of(c).showSnackBar(SnackBar(content: Text('$e'))); } }
+void _run(BuildContext c, Future<dynamic> f) async { try { await f; } catch (e) { if (c.mounted) ScaffoldMessenger.of(c).showSnackBar(SnackBar(content: Text(errorText(e)))); } }
 
 class AdvisoryScreen extends StatelessWidget {
   final String teacherId; const AdvisoryScreen({super.key, required this.teacherId});
@@ -35,7 +37,7 @@ class SectionScreen extends StatelessWidget {
   @override
   Widget build(BuildContext c) => DefaultTabController(length: 3, child: Scaffold(
         appBar: AppBar(title: Text('Grade ${section['grade_level']} - ${section['name']}'), bottom: const TabBar(tabs: [Tab(text: 'Students'), Tab(text: 'Schedule'), Tab(text: 'Homeroom')])),
-        body: TabBarView(children: [_Students(section['id']), _Schedule(section['id']), HomeroomTab(sectionId: section['id'])])));
+        body: TabBarView(children: [KeepAlive(child: _Students(section['id'])), KeepAlive(child: _Schedule(section['id'])), KeepAlive(child: HomeroomTab(sectionId: section['id']))])));
 }
 
 class _Students extends StatelessWidget {
@@ -78,7 +80,7 @@ class _Schedule extends StatelessWidget {
           await Api.post('/api/sections/$sid/subjects', {'code': cd, 'name': nm, 'teacher_id': teacher});
           final sub = await sb.from('subjects').select('id').eq('code', cd).single();
           await Api.post('/api/sections/$sid/schedules', {'subject_id': sub['id'], 'teacher_id': teacher, 'day_of_week': day, 'start_time': st.text, 'end_time': en.text, 'room': room.text.isEmpty ? null : room.text});
-        } catch (e) { if (c.mounted) ScaffoldMessenger.of(c).showSnackBar(SnackBar(content: Text('$e'))); }
+        } catch (e) { if (c.mounted) ScaffoldMessenger.of(c).showSnackBar(SnackBar(content: Text(errorText(e)))); }
       }, child: const Text('Save'))]);
     }));
   }

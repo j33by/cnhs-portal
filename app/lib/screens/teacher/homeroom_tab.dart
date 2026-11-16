@@ -26,7 +26,7 @@ class _HomeroomState extends State<HomeroomTab> {
       final r = await Future.wait<Rows>([loadStudents(widget.sectionId), sb.from('daily_attendance').select().eq('section_id', widget.sectionId).eq('att_date', ymd.format(date))]);
       studs = r[0]; st.clear(); src.clear(); tin.clear(); tout.clear();
       for (final a in r[1]) { final k = a['student_id'] as String; st[k] = a['status'] as String; src[k] = a['source'] as String? ?? ''; tin[k] = a['time_in'] as String?; tout[k] = a['time_out'] as String?; }
-    } catch (e) { toast('$e'); }
+    } catch (e) { toastError(e); }
     if (mounted) setState(() => loading = false);
   }
 
@@ -37,7 +37,7 @@ class _HomeroomState extends State<HomeroomTab> {
 
   Future<void> _save() async {
     final entries = [for (final s in studs) if ((st[s['id']] ?? '').isNotEmpty) {'student_id': s['id'], 'status': st[s['id']]}];
-    try { final r = await Api.post('/api/attendance/homeroom', {'section_id': widget.sectionId, 'date': ymd.format(date), 'entries': entries}); toast('Attendance saved (${r['saved']} students)'); await _load(); } catch (e) { toast('$e'); }
+    try { final r = await Api.post('/api/attendance/homeroom', {'section_id': widget.sectionId, 'date': ymd.format(date), 'entries': entries}); toast('Attendance saved (${r['saved']} students)'); await _load(); } catch (e) { toastError(e); }
   }
 
   @override

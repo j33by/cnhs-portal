@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'api.dart';
+import 'messenger.dart';
 
 enum UsbState { none, connected, syncing, error }
 
@@ -68,7 +69,7 @@ class UsbSync extends ChangeNotifier {
       drive = d.path;
       if (state == UsbState.none) { state = UsbState.connected; message = 'USB found on ${d.path}'; notifyListeners(); }
       if (_logs(d).any((f) => _seen[f.path] != _sig(f))) { _busy = false; await syncNow(); }
-    } catch (e) { state = UsbState.error; message = '$e'; notifyListeners(); } finally { _busy = false; }
+    } catch (e) { state = UsbState.error; message = errorText(e); notifyListeners(); } finally { _busy = false; }
   }
 
   /// Full two-way sync: stick -> database, then database -> stick.
@@ -86,7 +87,7 @@ class UsbSync extends ChangeNotifier {
       if (form != null) await Api.upload('/api/usb/ingest', {'employee': await form.readAsBytes()});   // learn who is already on the terminal
       await _writeForm();
       state = UsbState.connected; lastSync = DateTime.now(); message = 'Synced ${d.path}  ($uploaded log file${uploaded == 1 ? '' : 's'})';
-    } catch (e) { state = UsbState.error; message = 'Sync failed: $e'; }
+    } catch (e) { state = UsbState.error; message = 'Sync failed: ${errorText(e)}'; }
     notifyListeners();
   }
 

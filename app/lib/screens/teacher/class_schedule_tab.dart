@@ -21,7 +21,7 @@ class ClassScheduleTab extends StatelessWidget {
         TextButton(onPressed: () => Navigator.pop(c2), child: const Text('Cancel')),
         FilledButton(onPressed: () async {
           Navigator.pop(c2);
-          try { final r = await Api.post('/api/classes/$sectionId/$subjectId/schedules', {'schedules': blocks, 'room': room.text.trim()}); toast('${r['added']} time slot(s) added'); } catch (e) { toast('$e'); }
+          try { final r = await Api.post('/api/classes/$sectionId/$subjectId/schedules', {'schedules': blocks, 'room': room.text.trim()}); toast('${r['added']} time slot(s) added'); } catch (e) { toastError(e); }
         }, child: const Text('Save')),
       ],
     ));
@@ -42,7 +42,7 @@ class ClassScheduleTab extends StatelessWidget {
               title: Text(kDays[x['day_of_week'] as int]),
               subtitle: Text('${t12(x['start_time'])} – ${t12(x['end_time'])}${x['room'] != null ? '  ·  ${x['room']}' : ''}'),
               trailing: IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red), onPressed: () async {
-                try { await Api.delete('/api/schedules/${x['id']}'); } catch (e) { toast('$e'); }
+                try { await Api.delete('/api/schedules/${x['id']}'); } catch (e) { toastError(e); }
               }),
             )]);
           }),

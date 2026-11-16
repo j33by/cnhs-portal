@@ -46,7 +46,7 @@ class _RecordTabState extends State<RecordTab> {
       for (final c in ctl.values) { c.dispose(); }
       ctl.clear();
       for (final c in cols) { for (final s in studs) { final v = scores[c['id']]?[s['id']]; ctl['${c['id']}|${s['id']}'] = TextEditingController(text: v == null ? '' : fmtNum(v)); } }
-    } catch (e) { toast('$e'); }
+    } catch (e) { toastError(e); }
     if (mounted) setState(() => loading = false);
   }
 
@@ -71,14 +71,14 @@ class _RecordTabState extends State<RecordTab> {
     try {
       await Api.put('/api/record/scores', {'section_id': widget.sectionId, 'subject_id': widget.subjectId, 'term': term, 'scores': changes});
       toast('${changes.length} score change(s) saved'); await _load();
-    } catch (e) { toast('$e'); }
+    } catch (e) { toastError(e); }
   }
 
   Future<void> _push() async {
     try {
       final r = await Api.post('/api/record/push-grade', {'section_id': widget.sectionId, 'subject_id': widget.subjectId, 'term': term, 'transmute': tr});
       toast('Copied to Term $term grades (${r['saved']} students)');
-    } catch (e) { toast('$e'); }
+    } catch (e) { toastError(e); }
   }
 
   Future<void> _colDialog([Map<String, dynamic>? col]) async {
@@ -97,7 +97,7 @@ class _RecordTabState extends State<RecordTab> {
         TextField(controller: w, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Weight (0.1 - 10)')),
       ])),
       actions: [
-        if (col != null) TextButton(onPressed: () async { Navigator.pop(c2); try { await Api.delete('/api/record/columns/${col['id']}'); await _load(); } catch (e) { toast('$e'); } }, child: const Text('Delete', style: TextStyle(color: Colors.red))),
+        if (col != null) TextButton(onPressed: () async { Navigator.pop(c2); try { await Api.delete('/api/record/columns/${col['id']}'); await _load(); } catch (e) { toastError(e); } }, child: const Text('Delete', style: TextStyle(color: Colors.red))),
         TextButton(onPressed: () => Navigator.pop(c2), child: const Text('Cancel')),
         FilledButton(onPressed: () async {
           Navigator.pop(c2);
@@ -106,7 +106,7 @@ class _RecordTabState extends State<RecordTab> {
             if (col == null) { await Api.post('/api/record/columns', {...body, 'section_id': widget.sectionId, 'subject_id': widget.subjectId, 'term': term}); }
             else { await Api.patch('/api/record/columns/${col['id']}', body); }
             await _load();
-          } catch (e) { toast('$e'); }
+          } catch (e) { toastError(e); }
         }, child: const Text('Save')),
       ],
     )));

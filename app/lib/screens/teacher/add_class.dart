@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../core/api.dart';
 import '../../core/messenger.dart';
 import '../../widgets/schedule_blocks.dart';
+import 'class_common.dart';
 
 /// A teacher creates a class: grade level + one of their subjects + section/room + schedule.
 /// A section or room that already exists for that grade (under anyone's advisory) is picked automatically.
@@ -15,6 +17,10 @@ class _AddClassState extends State<AddClassScreen> {
   List<int> myGrades = [];
   List<Map<String, dynamic>> mySubjects = [], sections = [];
   Map<String, int> counts = {};
+  Map<String, String> advisers = {};
+  int? _yid;
+  StreamSubscription<dynamic>? _secSub;
+  final sectionFocus = FocusNode();
   bool loading = true, saving = false, roomTouched = false;
   int? grade; String? subjectCode; String? error;
   final sectionCtl = TextEditingController(), roomCtl = TextEditingController();
@@ -23,7 +29,7 @@ class _AddClassState extends State<AddClassScreen> {
   @override
   void initState() { super.initState(); _init(); }
   @override
-  void dispose() { sectionCtl.dispose(); roomCtl.dispose(); super.dispose(); }
+  void dispose() { _secSub?.cancel(); sectionFocus.dispose(); sectionCtl.dispose(); roomCtl.dispose(); super.dispose(); }
 
   Future<void> _init() async {
     try {
@@ -34,21 +40,34 @@ class _AddClassState extends State<AddClassScreen> {
       mySubjects = s;
       if (myGrades.length == 1) { grade = myGrades.first; await _loadSections(); }
       if (mySubjects.length == 1) { subjectCode = mySubjects.first['code'] as String; }
-    } catch (e) { toast('$e'); }
+    } catch (e) { toastError(e); }
     if (mounted) setState(() => loading = false);
   }
 
+  /// Sections of the chosen grade for the current school year. Live: a section created by anyone shows up here immediately.
   Future<void> _loadSections() async {
-    if (grade == null) return;
+    _secSub?.cancel(); _secSub = null;
+    if (grade == null) { return; }
     try {
-      final r = await sb.from('sections').select('id,name,homeroom,grade_level,teachers(first_name,last_name),school_years!inner(is_current)')
-          .eq('grade_level', grade!).eq('school_years.is_current', true).order('name');
-      final ids = [for (final s in r) s['id']];
+      _yid ??= await currentYearId();
+      await _refreshSections();
+      _secSub = sb.from('sections').stream(primaryKey: ['id']).eq('grade_level', grade!).listen((_) => _refreshSections(), onError: (_) {});
+    } catch (e) { toastError(e); }
+  }
+
+  Future<void> _refreshSections() async {
+    final g = grade, y = _yid;
+    if (g == null || y == null) { return; }
+    try {
+      final r = await sb.from('sections').select('id,name,homeroom,grade_level,adviser_id').eq('school_year_id', y).eq('grade_level', g).order('name');
+      final advIds = {for (final x in r) if (x['adviser_id'] != null) x['adviser_id'] as String}.toList();
+      final ar = advIds.isEmpty ? <Map<String, dynamic>>[] : await sb.from('teacher_names').select('id,first_name,last_name').inFilter('id', advIds);
+      final ids = [for (final x in r) x['id']];
       final st = ids.isEmpty ? <Map<String, dynamic>>[] : await sb.from('students').select('section_id').inFilter('section_id', ids).eq('status', 'enrolled');
       final c = <String, int>{};
       for (final x in st) { final k = x['section_id'] as String; c[k] = (c[k] ?? 0) + 1; }
-      if (mounted) setState(() { sections = r; counts = c; });
-    } catch (e) { toast('$e'); }
+      if (mounted && grade == g) { setState(() { sections = r; counts = c; advisers = {for (final a in ar) a['id'] as String: '${a['first_name']} ${a['last_name']}'}; }); }
+    } catch (e) { toastError(e); }
   }
 
   /// Typing a section name OR a room that already exists for this grade selects that section.
@@ -61,7 +80,7 @@ class _AddClassState extends State<AddClassScreen> {
     return null;
   }
 
-  String _adviser(Map<String, dynamic> s) { final t = s['teachers']; return t == null ? 'no adviser yet' : 'adviser ${t['first_name']} ${t['last_name']}'; }
+  String _adviser(Map<String, dynamic> s) { final n = advisers[s['adviser_id']]; return n == null ? 'no adviser yet' : 'adviser $n'; }
   String _students(Map<String, dynamic> s) { final n = counts[s['id']] ?? 0; return '$n student${n == 1 ? '' : 's'}'; }
 
   void _onSectionChanged() {
@@ -89,7 +108,7 @@ class _AddClassState extends State<AddClassScreen> {
       });
       toast(r['created_section'] == true ? 'Class added. New section "${r['section_name']}" was created.' : 'Class added to ${r['section_name']} (${r['students']} students).');
       if (mounted) Navigator.pop(context, r);
-    } catch (e) { setState(() => error = '$e'); }
+    } catch (e) { setState(() => error = errorText(e)); }
     if (mounted) setState(() => saving = false);
   }
 
@@ -124,8 +143,33 @@ class _AddClassState extends State<AddClassScreen> {
             ),
           ]),
           _section('Section and room', Icons.meeting_room, [
-            TextField(controller: sectionCtl, textCapitalization: TextCapitalization.words, onChanged: (_) => _onSectionChanged(),
-                decoration: const InputDecoration(labelText: 'Section or room *', hintText: 'e.g. Rizal, or Room 12', border: OutlineInputBorder())),
+            RawAutocomplete<Map<String, dynamic>>(
+              textEditingController: sectionCtl, focusNode: sectionFocus,
+              displayStringForOption: (o) => '${o['name']}',
+              optionsBuilder: (v) {
+                if (grade == null) { return const Iterable<Map<String, dynamic>>.empty(); }
+                final t = v.text.trim().toLowerCase();
+                return sections.where((x) => t.isEmpty || '${x['name']}'.toLowerCase().contains(t) || '${x['homeroom'] ?? ''}'.toLowerCase().contains(t));
+              },
+              onSelected: (o) { roomTouched = false; _onSectionChanged(); },
+              fieldViewBuilder: (ctx, ctl, focus, onSubmit) => TextField(
+                controller: ctl, focusNode: focus, textCapitalization: TextCapitalization.words, onChanged: (_) => _onSectionChanged(),
+                decoration: InputDecoration(
+                  labelText: 'Section or room *', border: const OutlineInputBorder(), suffixIcon: const Icon(Icons.arrow_drop_down),
+                  hintText: grade == null ? 'Choose the grade level first' : sections.isEmpty ? 'No section yet. Type a name to create one' : 'Tap to pick an existing section, or type a new one',
+                ),
+              ),
+              optionsViewBuilder: (ctx, onSelected, options) => Align(alignment: Alignment.topLeft, child: Material(
+                elevation: 6, borderRadius: BorderRadius.circular(8),
+                child: ConstrainedBox(constraints: const BoxConstraints(maxHeight: 260, maxWidth: 640), child: ListView.builder(
+                  padding: EdgeInsets.zero, shrinkWrap: true, itemCount: options.length,
+                  itemBuilder: (c, i) {
+                    final x = options.elementAt(i); final rm = (x['homeroom'] ?? '').toString();
+                    return ListTile(dense: true, leading: const Icon(Icons.groups), title: Text('${x['name']}${rm.isEmpty ? '' : ' · Room $rm'}'), subtitle: Text('${_adviser(x)} · ${_students(x)}'), onTap: () => onSelected(x));
+                  },
+                )),
+              )),
+            ),
             if (grade != null && sections.isNotEmpty) ...[
               const SizedBox(height: 10), Text('Existing sections in Grade $grade', style: Theme.of(c).textTheme.labelMedium),
               const SizedBox(height: 6),

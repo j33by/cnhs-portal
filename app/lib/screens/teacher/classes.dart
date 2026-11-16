@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../core/api.dart';
 import '../../core/messenger.dart';
+import '../../widgets/keep_alive.dart';
 import '../../widgets/shared.dart';
 import 'add_class.dart';
 import 'attendance_tab.dart';
@@ -33,7 +34,7 @@ Future<bool> removeClass(BuildContext c, String sectionId, String subjectId, Str
     content: Text('$label will leave your classes and its schedule will be deleted. Grades, attendance and class record data are kept.'),
     actions: [TextButton(onPressed: () => Navigator.pop(c2, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(c2, true), child: const Text('Remove'))]));
   if (ok != true) return false;
-  try { await Api.delete('/api/classes/$sectionId/$subjectId'); toast('Class removed'); return true; } catch (e) { toast('$e'); return false; }
+  try { await Api.delete('/api/classes/$sectionId/$subjectId'); toast('Class removed'); return true; } catch (e) { toastError(e); return false; }
 }
 
 /// The teacher's classes. Phones: a list that opens each class. Desktop / tablets: list on the left, class on the right.
@@ -88,7 +89,7 @@ class _MyClassesState extends State<MyClasses> {
       out.sort((a, b) { final g = (a['grade'] as int).compareTo(b['grade'] as int); if (g != 0) return g; final s = '${a['section']}'.compareTo('${b['section']}'); return s != 0 ? s : '${a['subject']}'.compareTo('${b['subject']}'); });
       if (!mounted) return;
       setState(() { items = out; if (selected != null && !out.any((o) => classKey(o) == classKey(selected!))) { selected = null; } });
-    } catch (e) { toast('$e'); if (mounted) setState(() => items ??= []); }
+    } catch (e) { toastError(e); if (mounted) setState(() => items ??= []); }
   }
 
   void _open(Map<String, dynamic> cls, bool wide) {
@@ -184,11 +185,11 @@ class ClassScreen extends StatelessWidget {
             bottom: const TabBar(isScrollable: true, tabAlignment: TabAlignment.start, tabs: [Tab(text: 'Students'), Tab(text: 'Class record'), Tab(text: 'Attendance'), Tab(text: 'Grades'), Tab(text: 'Schedule')]),
           ),
           body: TabBarView(children: [
-            ClassStudentsTab(sectionId: sectionId, subjectId: subjectId),
-            RecordTab(sectionId: sectionId, subjectId: subjectId, initialTerm: term),
-            AttendanceTab(sectionId: sectionId, subjectId: subjectId),
-            GradesTab(sectionId: sectionId, subjectId: subjectId, initialTerm: term),
-            ClassScheduleTab(sectionId: sectionId, subjectId: subjectId),
+            KeepAlive(child: ClassStudentsTab(sectionId: sectionId, subjectId: subjectId)),
+            KeepAlive(child: RecordTab(sectionId: sectionId, subjectId: subjectId, initialTerm: term)),
+            KeepAlive(child: AttendanceTab(sectionId: sectionId, subjectId: subjectId)),
+            KeepAlive(child: GradesTab(sectionId: sectionId, subjectId: subjectId, initialTerm: term)),
+            KeepAlive(child: ClassScheduleTab(sectionId: sectionId, subjectId: subjectId)),
           ]),
         ),
       );

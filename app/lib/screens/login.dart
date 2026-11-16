@@ -23,7 +23,7 @@ class LoginScreen extends StatelessWidget {
               try {
                 if (Platform.isWindows) { await signInWithGoogleWindows(); }
                 else { await sb.auth.signInWithOAuth(OAuthProvider.google, redirectTo: Config.mobileRedirect); }
-              } catch (e) { toast('$e'); }
+              } catch (e) { toastError(e); }
             },
           ),
           const SizedBox(height: 12),

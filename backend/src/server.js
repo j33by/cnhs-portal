@@ -115,6 +115,7 @@ app.patch('/api/me', wrap(async (q, r) => {
   }
   r.json({ ok: true });
 }));
+app.post('/api/notifications/read', wrap(async (q, r) => { await sb.from('notifications').update({ read: true }).eq('user_id', q.user.id).eq('read', false); r.json({ ok: true }); }));
 app.post('/api/device-token', wrap(async (q, r) => { await sb.from('profiles').update({ fcm_token: q.body.token }).eq('id', q.user.id); r.json({ ok: true }); }));
 
 // ============ Parent binding ============
@@ -122,7 +123,7 @@ app.post('/api/parent/bind', wrap(async (q, r) => {
   if (q.profile?.role !== 'parent') throw bad('Parents only', 403);
   const { data: s } = await sb.from('students').select('id,first_name,last_name,section_id,sections(adviser_id)').eq('student_no', (q.body.student_no || '').trim()).maybeSingle();
   if (!s) throw bad('No student with that ID number', 404);
-  const { error } = await sb.from('parent_links').insert({ parent_id: q.user.id, student_id: s.id });
+  const { error } = await sb.from('parent_links').insert({ parent_id: q.user.id, student_id: s.id, student_name: `${s.first_name} ${s.last_name}`, student_no: (q.body.student_no || '').trim(), parent_name: q.profile.full_name, parent_email: q.profile.email });
   if (error?.code === '23505') throw bad('You already requested this student'); if (error) throw error;
   const { data: all } = await sb.from('teachers').select('id');
   await notify(sb, [s.sections?.adviser_id || null, ...(s.sections?.adviser_id ? [] : (all || []).map(t => t.id))], { kind: 'bind', title: 'Parent bind request', body: `${q.profile.full_name} wants to link to ${s.first_name} ${s.last_name}.` });

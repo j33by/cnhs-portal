@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../core/api.dart';
 import '../../core/messenger.dart';
@@ -20,29 +21,40 @@ Future<void> linkDeviceDialog(BuildContext context, {required String studentId, 
     ],
   ));
   if (pick == null) return;
-  try { await Api.post('/api/device/link', {'biometric_id': pick, 'id': studentId}); toast('Linked device ID $pick to $studentName. Earlier punches were attached.'); } catch (e) { toast('$e'); }
+  try { await Api.post('/api/device/link', {'biometric_id': pick, 'id': studentId}); toast('Linked device ID $pick to $studentName. Earlier punches were attached.'); } catch (e) { toastError(e); }
 }
 
-/// Terminal IDs that no student owns yet (shown on the USB tab). Teachers and staff on the terminal can be ignored.
-class UnlinkedDeviceCount extends StatelessWidget {
+/// Terminal IDs that no student owns yet (shown on the USB tab). Teachers and staff on the terminal can be ignored. Live.
+class UnlinkedDeviceCount extends StatefulWidget {
   const UnlinkedDeviceCount({super.key});
   @override
-  Widget build(BuildContext c) => StreamBuilder<List<Map<String, dynamic>>>(
-        stream: sb.from('device_people').stream(primaryKey: ['biometric_id']),
-        builder: (c, s) => FutureBuilder<List<Map<String, dynamic>>>(
-          future: sb.from('students').select('biometric_id').not('biometric_id', 'is', null),
-          builder: (c, m) {
-            if (!s.hasData || !m.hasData) return const SizedBox();
-            final used = {...m.data!.map((x) => x['biometric_id'])};
-            final open = s.data!.where((d) => d['ignored'] != true && !used.contains(d['biometric_id'])).toList()..sort((a, b) => (a['biometric_id'] as int).compareTo(b['biometric_id'] as int));
-            if (open.isEmpty) return const SizedBox();
-            return Card(color: Colors.amber.shade50, child: ExpansionTile(
-              leading: const Icon(Icons.fingerprint),
-              title: Text('${open.length} device ID${open.length == 1 ? '' : 's'} on the terminal not linked to a student'),
-              subtitle: const Text('Link a student with the fingerprint icon in the advisory list. Ignore IDs of teachers or staff.', style: TextStyle(fontSize: 12)),
-              children: [for (final d in open) ListTile(dense: true, title: Text('ID ${d['biometric_id']}  ·  ${d['name'] ?? '(no name)'}'),
-                  trailing: TextButton(onPressed: () async { try { await Api.post('/api/device/ignore', {'biometric_id': d['biometric_id'], 'ignored': true}); } catch (e) { toast('$e'); } }, child: const Text('Ignore')))],
-            ));
-          }),
-      );
+  State<UnlinkedDeviceCount> createState() => _UnlinkedState();
+}
+
+class _UnlinkedState extends State<UnlinkedDeviceCount> {
+  List<Map<String, dynamic>> people = [];
+  Set<dynamic> used = {};
+  StreamSubscription<dynamic>? _a, _b;
+
+  @override
+  void initState() {
+    super.initState();
+    _a = sb.from('device_people').stream(primaryKey: ['biometric_id']).listen((r) { if (mounted) { setState(() => people = r); } }, onError: (_) {});
+    _b = sb.from('students').stream(primaryKey: ['id']).listen((r) { if (mounted) { setState(() => used = {for (final x in r) if (x['biometric_id'] != null) x['biometric_id']}); } }, onError: (_) {});
+  }
+  @override
+  void dispose() { _a?.cancel(); _b?.cancel(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext c) {
+    final open = people.where((d) => d['ignored'] != true && !used.contains(d['biometric_id'])).toList()..sort((a, b) => (a['biometric_id'] as int).compareTo(b['biometric_id'] as int));
+    if (open.isEmpty) { return const SizedBox(); }
+    return Card(color: Colors.amber.shade50, child: ExpansionTile(
+      leading: const Icon(Icons.fingerprint),
+      title: Text('${open.length} device ID${open.length == 1 ? '' : 's'} on the terminal not linked to a student'),
+      subtitle: const Text('Link a student with the fingerprint icon in the advisory list. Ignore IDs of teachers or staff.', style: TextStyle(fontSize: 12)),
+      children: [for (final d in open) ListTile(dense: true, title: Text('ID ${d['biometric_id']}  ·  ${d['name'] ?? '(no name)'}'),
+          trailing: TextButton(onPressed: () async { try { await Api.post('/api/device/ignore', {'biometric_id': d['biometric_id'], 'ignored': true}); } catch (e) { toastError(e); } }, child: const Text('Ignore')))],
+    ));
+  }
 }

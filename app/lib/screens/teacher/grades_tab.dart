@@ -33,7 +33,7 @@ class _GradesState extends State<GradesTab> {
       for (final c in ctl.values) { c.dispose(); }
       ctl.clear();
       for (final s in studs) { final v = g[s['id']]?['grade']; ctl[s['id'] as String] = TextEditingController(text: v == null ? '' : fmtNum(v as num)); }
-    } catch (e) { toast('$e'); }
+    } catch (e) { toastError(e); }
     if (mounted) setState(() => loading = false);
   }
 
@@ -46,11 +46,11 @@ class _GradesState extends State<GradesTab> {
       if (v == null || v < 0 || v > 100) { toast('Grades must be numbers from 0 to 100. Check ${s['last_name']}.'); return; }
       list.add({'student_id': s['id'], 'grade': v});
     }
-    try { await Api.post('/api/grades', {'section_id': widget.sectionId, 'subject_id': widget.subjectId, 'term': term, 'grades': list}); toast('Grades saved'); await _load(); } catch (e) { toast('$e'); }
+    try { await Api.post('/api/grades', {'section_id': widget.sectionId, 'subject_id': widget.subjectId, 'term': term, 'grades': list}); toast('Grades saved'); await _load(); } catch (e) { toastError(e); }
   }
 
   Future<void> _release() async {
-    try { await Api.post('/api/grades/release', {'section_id': widget.sectionId, 'subject_id': widget.subjectId, 'term': term, 'released': !released}); toast(released ? 'Grades hidden from students' : 'Released. Students and parents were notified.'); await _load(); } catch (e) { toast('$e'); }
+    try { await Api.post('/api/grades/release', {'section_id': widget.sectionId, 'subject_id': widget.subjectId, 'term': term, 'released': !released}); toast(released ? 'Grades hidden from students' : 'Released. Students and parents were notified.'); await _load(); } catch (e) { toastError(e); }
   }
 
   @override

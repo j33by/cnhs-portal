@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../core/api.dart';
+import '../core/lookup.dart';
 
 const kDays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const kStatus = {'P': ['Present', Colors.green], 'A': ['Absent', Colors.red], 'L': ['Late', Colors.orange], 'E': ['Excused', Colors.blueGrey]};
@@ -26,7 +28,7 @@ class AttendanceView extends StatelessWidget {
         });
 }
 
-/// Realtime released grades of one student, grouped by subject (4 terms + final).
+/// Realtime released grades of one student, grouped by subject (4 terms + final). Subject names come from the shared cache.
 class GradesView extends StatelessWidget {
   final String studentId; const GradesView(this.studentId, {super.key});
   @override
@@ -34,54 +36,70 @@ class GradesView extends StatelessWidget {
         stream: sb.from('grades').stream(primaryKey: ['id']).eq('student_id', studentId),
         builder: (c, s) {
           if (!s.hasData) return const Center(child: CircularProgressIndicator());
-          final rows = s.data!.where((g) => g['released'] == true).toList(); if (rows.isEmpty) return const Center(child: Text('No grades released yet'));
-          return FutureBuilder<List<Map<String, dynamic>>>(
-            future: sb.from('subjects').select(), builder: (c, subs) {
-              final names = {for (final x in subs.data ?? []) x['id']: x['name']};
-              final by = <String, Map<int, num>>{}; for (final g in rows) { (by[names[g['subject_id']] ?? 'Subject'] ??= {})[g['term']] = g['grade']; }
-              return ListView(children: [for (final e in by.entries) Card(child: ListTile(title: Text(e.key),
-                  subtitle: Text([for (var t = 1; t <= 4; t++) 'Q$t: ${e.value[t] ?? '—'}'].join('   ')),
-                  trailing: e.value.length == 4 ? Text((e.value.values.reduce((a, b) => a + b) / 4).toStringAsFixed(0), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)) : const Text('—')))]);
-            });
+          final rows = s.data!.where((g) => g['released'] == true).toList();
+          if (rows.isEmpty) return const Center(child: Text('No grades released yet'));
+          return ListenableBuilder(listenable: Lookup.i, builder: (c, _) {
+            final by = <String, Map<int, num>>{};
+            for (final g in rows) { (by[Lookup.i.subject(g['subject_id'] as String?)] ??= {})[g['term'] as int] = g['grade'] as num; }
+            return ListView(children: [for (final e in by.entries) Card(child: ListTile(title: Text(e.key),
+                subtitle: Text([for (var t = 1; t <= 4; t++) 'Q$t: ${e.value[t] ?? '—'}'].join('   ')),
+                trailing: e.value.length == 4 ? Text((e.value.values.reduce((a, b) => a + b) / 4).toStringAsFixed(0), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)) : const Text('—')))]);
+          });
         });
 }
 
-/// Weekly schedule of a section with subject + teacher.
+/// Weekly schedule of a section with subject + teacher (live).
 class ScheduleView extends StatelessWidget {
   final String? sectionId; const ScheduleView(this.sectionId, {super.key});
   @override
   Widget build(BuildContext c) {
-    if (sectionId == null) return const Center(child: Text('You are not in a section yet'));
+    if (sectionId == null) return const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('Not in a section yet. The schedule appears once an adviser adds the student.', textAlign: TextAlign.center)));
     return StreamBuilder<List<Map<String, dynamic>>>(
       stream: sb.from('schedules').stream(primaryKey: ['id']).eq('section_id', sectionId!).order('start_time'),
       builder: (c, s) {
         if (!s.hasData) return const Center(child: CircularProgressIndicator());
-        return FutureBuilder<List<List<Map<String, dynamic>>>>(
-          future: Future.wait<List<Map<String, dynamic>>>([sb.from('subjects').select(), sb.from('teacher_names').select('id,first_name,last_name')]),
-          builder: (c, m) {
-            final sub = {for (final x in m.data?[0] ?? []) x['id']: x['name']}, tea = {for (final x in m.data?[1] ?? []) x['id']: '${x['first_name']} ${x['last_name']}'};
-            return ListView(children: [for (var d = 1; d <= 5; d++) ...[
-              Padding(padding: const EdgeInsets.fromLTRB(16, 16, 16, 4), child: Text(kDays[d], style: Theme.of(c).textTheme.titleMedium)),
-              for (final r in s.data!.where((r) => r['day_of_week'] == d)) ListTile(dense: true, title: Text(sub[r['subject_id']] ?? 'Class'),
-                  subtitle: Text('${t12(r['start_time'])} – ${t12(r['end_time'])}  ·  ${tea[r['teacher_id']] ?? 'TBA'}${r['room'] != null ? '  ·  ${r['room']}' : ''}')),
-            ]]);
-          });
+        if (s.data!.isEmpty) return const Center(child: Text('No classes scheduled yet'));
+        return ListenableBuilder(listenable: Lookup.i, builder: (c, _) => ListView(children: [for (var d = 1; d <= 5; d++) ...[
+          if (s.data!.any((r) => r['day_of_week'] == d)) Padding(padding: const EdgeInsets.fromLTRB(16, 16, 16, 4), child: Text(kDays[d], style: Theme.of(c).textTheme.titleMedium)),
+          for (final r in s.data!.where((r) => r['day_of_week'] == d)) ListTile(dense: true, title: Text(Lookup.i.subject(r['subject_id'] as String?)),
+              subtitle: Text('${t12(r['start_time'])} – ${t12(r['end_time'])}  ·  ${Lookup.i.teacher(r['teacher_id'] as String?)}${r['room'] != null ? '  ·  ${r['room']}' : ''}')),
+        ]]));
       });
   }
 }
 
-/// Realtime notification inbox.
-class NotificationsView extends StatelessWidget {
+/// Realtime notification inbox. Unread ones are bold; opening this screen marks them read after a few seconds.
+class NotificationsView extends StatefulWidget {
   const NotificationsView({super.key});
   @override
+  State<NotificationsView> createState() => _NotificationsViewState();
+}
+
+class _NotificationsViewState extends State<NotificationsView> {
+  late final Stream<List<Map<String, dynamic>>> _stream = sb.from('notifications').stream(primaryKey: ['id'])
+      .eq('user_id', sb.auth.currentUser!.id).order('created_at', ascending: false);
+  Timer? _t;
+  @override
+  void dispose() { _t?.cancel(); super.dispose(); }
+
+  void _scheduleRead() {
+    if (_t != null) return;
+    _t = Timer(const Duration(seconds: 3), () { _t = null; Api.post('/api/notifications/read').catchError((_) {}); });
+  }
+
+  @override
   Widget build(BuildContext c) => StreamBuilder<List<Map<String, dynamic>>>(
-        stream: sb.from('notifications').stream(primaryKey: ['id']).eq('user_id', sb.auth.currentUser!.id).order('created_at', ascending: false),
+        stream: _stream,
         builder: (c, s) {
           if (!s.hasData) return const Center(child: CircularProgressIndicator());
           if (s.data!.isEmpty) return const Center(child: Text('No notifications'));
+          final unread = s.data!.where((n) => n['read'] != true).length;
+          if (unread > 0 && TickerMode.of(c)) { _scheduleRead(); }              // TickerMode is off while this tab is hidden
           return ListView(children: [for (final n in s.data!) ListTile(
-              leading: Icon(n['kind'] == 'attendance' ? Icons.how_to_reg : n['kind'] == 'grades' ? Icons.grade : Icons.notifications),
-              title: Text(n['title']), subtitle: Text(n['body']), trailing: Text(DateFormat('MMM d\nh:mm a').format(DateTime.parse(n['created_at']).toLocal()), textAlign: TextAlign.right, style: const TextStyle(fontSize: 11)))]);
+              tileColor: n['read'] == true ? null : Theme.of(c).colorScheme.primaryContainer.withValues(alpha: .35),
+              leading: Icon(n['kind'] == 'attendance' ? Icons.how_to_reg : n['kind'] == 'grades' ? Icons.grade : n['kind'] == 'bind' ? Icons.link : Icons.notifications),
+              title: Text(n['title'], style: TextStyle(fontWeight: n['read'] == true ? FontWeight.normal : FontWeight.bold)), subtitle: Text(n['body']),
+              trailing: Text(DateFormat('MMM d\nh:mm a').format(DateTime.parse(n['created_at']).toLocal()), textAlign: TextAlign.right, style: const TextStyle(fontSize: 11)))]);
         });
 }
 

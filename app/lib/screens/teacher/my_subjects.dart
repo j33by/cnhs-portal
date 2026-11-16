@@ -22,7 +22,7 @@ class _MySubjectsState extends State<MySubjects> {
     try {
       final r = await sb.from('teacher_subjects').select('code,name').eq('teacher_id', sb.auth.currentUser!.id).order('code');
       setState(() => initial = [for (final x in r) {'code': '${x['code']}', 'name': '${x['name']}'}]);
-    } catch (e) { toast('$e'); setState(() => initial = []); }
+    } catch (e) { toastError(e); setState(() => initial = []); }
   }
 
   Future<void> _save() async {
@@ -31,7 +31,7 @@ class _MySubjectsState extends State<MySubjects> {
       final r = await Api.put('/api/my-subjects', {'subjects': current});
       toast('${r['saved']} subject(s) saved');
       await _load();
-    } catch (e) { toast('$e'); }
+    } catch (e) { toastError(e); }
     if (mounted) setState(() => saving = false);
   }
 

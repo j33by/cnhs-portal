@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../core/api.dart';
+import '../core/messenger.dart';
+import '../core/session.dart';
 import '../widgets/avatar_picker.dart';
 import '../widgets/subjects_editor.dart';
 
@@ -36,8 +38,8 @@ mixin _FormHelpers<T extends StatefulWidget> on State<T> {
           title: const Text('You are registered!'), content: Column(mainAxisSize: MainAxisSize.min, children: [const Text('Your ID number:'), const SizedBox(height: 8),
           SelectableText('$id', style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold)), if (r['section_matched'] == false) const Padding(padding: EdgeInsets.only(top: 12), child: Text('Your adviser will add you to your section.'))]),
           actions: [FilledButton(onPressed: () => Navigator.pop(context), child: const Text('Continue'))]));
-      await sb.auth.refreshSession();                           // AuthGate reloads profile -> role home
-    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e'))); }
+      profileReload.value++;                                    // the gate reloads the profile and opens the right home screen
+    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errorText(e)))); }
     if (mounted) setState(() => busy = false);
   }
   Widget submitBtn(VoidCallback f) => FilledButton(onPressed: busy ? null : f, style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(50)), child: busy ? const CircularProgressIndicator() : const Text('Register'));
@@ -70,7 +72,8 @@ class _SF extends State<_StudentForm> with _FormHelpers {
   @override void initState() { super.initState(); _loadSections(); }
   Future<void> _loadSections() async {
     try {
-      final r = await sb.from('sections').select('id,name,school_years!inner(is_current)').eq('grade_level', grade).eq('school_years.is_current', true).order('name');
+      final y = await sb.from('school_years').select('id').eq('is_current', true).single();
+      final r = await sb.from('sections').select('id,name').eq('school_year_id', y['id']).eq('grade_level', grade).order('name');
       if (mounted) setState(() { sections = r; sectionId = null; });
     } catch (_) {}
   }

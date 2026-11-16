@@ -55,11 +55,14 @@ class _ProfileTabState extends State<ProfileTab> {
       final uid = sb.auth.currentUser!.id;
       final p = await sb.from('profiles').select().eq('id', uid).single();
       Map<String, dynamic>? r;
-      if (p['role'] == 'student') { r = await sb.from('students').select('*, sections(name,grade_level)').eq('id', uid).single(); }
+      if (p['role'] == 'student') {
+        r = await sb.from('students').select().eq('id', uid).single();
+        if (r['section_id'] != null) { r['sections'] = await sb.from('sections').select('name,grade_level').eq('id', r['section_id']).maybeSingle(); }
+      }
       else if (p['role'] == 'teacher') { r = await sb.from('teachers').select().eq('id', uid).single(); }
       prof = p; row = r;
       _fill();
-    } catch (e) { toast('$e'); }
+    } catch (e) { toastError(e); }
     if (mounted) setState(() {});
   }
 
@@ -73,7 +76,7 @@ class _ProfileTabState extends State<ProfileTab> {
   }
 
   Future<void> _photo(String url) async {
-    try { await Api.patch('/api/me', {'photo_url': url}); prof!['photo_url'] = url; toast('Photo updated'); } catch (e) { toast('$e'); }
+    try { await Api.patch('/api/me', {'photo_url': url}); prof!['photo_url'] = url; toast('Photo updated'); } catch (e) { toastError(e); }
   }
 
   Future<void> _save() async {
@@ -85,7 +88,7 @@ class _ProfileTabState extends State<ProfileTab> {
       body['grade_levels'] = (grades.toList()..sort());
     }
     setState(() => saving = true);
-    try { await Api.patch('/api/me', body); toast('Profile saved'); editing = false; await _load(); } catch (e) { toast('$e'); }
+    try { await Api.patch('/api/me', body); toast('Profile saved'); editing = false; await _load(); } catch (e) { toastError(e); }
     if (mounted) setState(() => saving = false);
   }
 
