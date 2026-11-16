@@ -2,11 +2,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../core/api.dart';
 import '../../core/messenger.dart';
+import '../../widgets/colors.dart';
 import '../../widgets/schedule_blocks.dart';
 import 'class_common.dart';
 
 /// A teacher creates a class: grade level + one of their subjects + section/room + schedule.
 /// A section or room that already exists for that grade (under anyone's advisory) is picked automatically.
+/// "I'm the adviser" makes the teacher the adviser of the section (when it has none) so it shows as an advisory card.
 class AddClassScreen extends StatefulWidget {
   const AddClassScreen({super.key});
   @override
@@ -21,10 +23,11 @@ class _AddClassState extends State<AddClassScreen> {
   int? _yid;
   StreamSubscription<dynamic>? _secSub;
   final sectionFocus = FocusNode();
-  bool loading = true, saving = false, roomTouched = false;
+  bool loading = true, saving = false, roomTouched = false, wantAdviser = false, advisoryOnly = false;
   int? grade; String? subjectCode; String? error;
   final sectionCtl = TextEditingController(), roomCtl = TextEditingController();
   List<Map<String, dynamic>> blocks = [];
+  final myId = sb.auth.currentUser?.id;
 
   @override
   void initState() { super.initState(); _init(); }
@@ -41,7 +44,7 @@ class _AddClassState extends State<AddClassScreen> {
       if (myGrades.length == 1) { grade = myGrades.first; await _loadSections(); }
       if (mySubjects.length == 1) { subjectCode = mySubjects.first['code'] as String; }
     } catch (e) { toastError(e); }
-    if (mounted) setState(() => loading = false);
+    if (mounted) { setState(() => loading = false); }
   }
 
   /// Sections of the chosen grade for the current school year. Live: a section created by anyone shows up here immediately.
@@ -73,15 +76,21 @@ class _AddClassState extends State<AddClassScreen> {
   /// Typing a section name OR a room that already exists for this grade selects that section.
   Map<String, dynamic>? get matched {
     final t = sectionCtl.text.trim().toLowerCase();
-    if (t.isEmpty) return null;
+    if (t.isEmpty) { return null; }
     for (final s in sections) {
       if ('${s['name']}'.toLowerCase() == t || (s['homeroom'] != null && '${s['homeroom']}'.toLowerCase() == t)) { return s; }
     }
     return null;
   }
 
-  String _adviser(Map<String, dynamic> s) { final n = advisers[s['adviser_id']]; return n == null ? 'no adviser yet' : 'adviser $n'; }
+  String _adviser(Map<String, dynamic> s) { final n = advisers[s['adviser_id']]; return n == null ? 'no adviser yet' : (s['adviser_id'] == myId ? 'you are the adviser' : 'adviser $n'); }
   String _students(Map<String, dynamic> s) { final n = counts[s['id']] ?? 0; return '$n student${n == 1 ? '' : 's'}'; }
+
+  // Adviser state of the section being typed/picked
+  bool get _mine => matched != null && matched!['adviser_id'] == myId;
+  bool get _blocked => matched != null && matched!['adviser_id'] != null && matched!['adviser_id'] != myId;
+  bool get _adviserNow => _mine || (wantAdviser && !_blocked);
+  bool get _only => _adviserNow && advisoryOnly;
 
   void _onSectionChanged() {
     final m = matched;
@@ -90,9 +99,10 @@ class _AddClassState extends State<AddClassScreen> {
   }
 
   String? _validate() {
-    if (grade == null) return 'Choose the grade level';
-    if (subjectCode == null) return 'Choose the subject';
-    if (sectionCtl.text.trim().isEmpty) return 'Type or choose the section';
+    if (grade == null) { return 'Choose the grade level'; }
+    if (sectionCtl.text.trim().isEmpty) { return 'Type or choose the section'; }
+    if (_only) { return null; }
+    if (subjectCode == null) { return 'Choose the subject'; }
     return validateBlocks(blocks);
   }
 
@@ -103,17 +113,21 @@ class _AddClassState extends State<AddClassScreen> {
     try {
       final name = matched != null ? '${matched!['name']}' : sectionCtl.text.trim();
       final r = await Api.post('/api/classes', {
-        'grade_level': grade, 'subject_code': subjectCode, 'section_name': name, 'section_id': matched?['id'],
-        'room': roomCtl.text.trim(), 'schedules': blocks,
+        'grade_level': grade, 'section_name': name, 'section_id': matched?['id'], 'room': roomCtl.text.trim(),
+        'adviser': _adviserNow, 'advisory_only': _only,
+        if (!_only) ...{'subject_code': subjectCode, 'schedules': blocks},
       });
-      toast(r['created_section'] == true ? 'Class added. New section "${r['section_name']}" was created.' : 'Class added to ${r['section_name']} (${r['students']} students).');
-      if (mounted) Navigator.pop(context, r);
+      toast(_only ? 'You are now the adviser of Grade $grade ${r['section_name']}.'
+          : r['created_section'] == true ? 'Class added. New section "${r['section_name']}" was created.' : 'Class added to ${r['section_name']} (${r['students']} students).');
+      if (mounted) { Navigator.pop(context, r); }
     } catch (e) { setState(() => error = errorText(e)); }
-    if (mounted) setState(() => saving = false);
+    if (mounted) { setState(() => saving = false); }
   }
 
-  Widget _section(String title, IconData icon, List<Widget> children) => Card(child: Padding(padding: const EdgeInsets.all(16),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+  Widget _section(String title, IconData icon, List<Widget> children, {Color? color}) => Card(
+      elevation: 0, color: color,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Theme.of(context).dividerColor.withValues(alpha: .5))),
+      child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Row(children: [Icon(icon, size: 20), const SizedBox(width: 8), Text(title, style: Theme.of(context).textTheme.titleMedium)]),
         const SizedBox(height: 14), ...children,
       ])));
@@ -122,26 +136,30 @@ class _AddClassState extends State<AddClassScreen> {
   Widget build(BuildContext c) {
     final m = matched;
     final subj = mySubjects.where((s) => s['code'] == subjectCode).toList();
+    final dark = Theme.of(c).brightness == Brightness.dark;
     return Scaffold(
       appBar: AppBar(title: const Text('Add class')),
       body: loading ? const Center(child: CircularProgressIndicator()) : Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 760), child: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          if (mySubjects.isEmpty || myGrades.isEmpty) Card(color: Colors.amber.shade50, child: Padding(padding: const EdgeInsets.all(12), child: Text(
-              mySubjects.isEmpty ? 'You have no subjects yet. Add them in the Subjects tab first.' : 'You have no grade levels yet. Add them in your Profile first.'))),
-          _section('Class', Icons.menu_book, [
+          if (myGrades.isEmpty || (mySubjects.isEmpty && !_only)) Card(color: Colors.amber.shade50, child: Padding(padding: const EdgeInsets.all(12), child: Text(
+              myGrades.isEmpty ? 'You have no grade levels yet. Add them in your Profile first.' : 'You have no subjects yet. Add them in the Subjects tab first (or choose "I only advise this section").'))),
+          _section(_only ? 'Grade level' : 'Class', Icons.menu_book, [
             DropdownButtonFormField<int>(
               initialValue: grade, decoration: const InputDecoration(labelText: 'Grade level *', border: OutlineInputBorder()),
               items: [for (final g in myGrades) DropdownMenuItem(value: g, child: Text('Grade $g'))],
               onChanged: (v) { setState(() { grade = v; sections = []; counts = {}; error = null; }); _loadSections(); },
             ),
-            const SizedBox(height: 14),
-            DropdownButtonFormField<String>(
-              initialValue: subjectCode, decoration: const InputDecoration(labelText: 'Subject *', border: OutlineInputBorder()),
-              items: [for (final s in mySubjects) DropdownMenuItem(value: s['code'] as String, child: Text('${s['code']} · ${s['name']}', overflow: TextOverflow.ellipsis))],
-              onChanged: (v) => setState(() { subjectCode = v; error = null; }),
-            ),
+            if (!_only) ...[
+              const SizedBox(height: 14),
+              DropdownButtonFormField<String>(
+                initialValue: subjectCode, decoration: const InputDecoration(labelText: 'Subject *', border: OutlineInputBorder()),
+                items: [for (final s in mySubjects) DropdownMenuItem(value: s['code'] as String, child: Text('${s['code']} · ${s['name']}', overflow: TextOverflow.ellipsis))],
+                onChanged: (v) => setState(() { subjectCode = v; error = null; }),
+              ),
+            ],
           ]),
+          const SizedBox(height: 4),
           _section('Section and room', Icons.meeting_room, [
             RawAutocomplete<Map<String, dynamic>>(
               textEditingController: sectionCtl, focusNode: sectionFocus,
@@ -165,7 +183,8 @@ class _AddClassState extends State<AddClassScreen> {
                   padding: EdgeInsets.zero, shrinkWrap: true, itemCount: options.length,
                   itemBuilder: (c, i) {
                     final x = options.elementAt(i); final rm = (x['homeroom'] ?? '').toString();
-                    return ListTile(dense: true, leading: const Icon(Icons.groups), title: Text('${x['name']}${rm.isEmpty ? '' : ' · Room $rm'}'), subtitle: Text('${_adviser(x)} · ${_students(x)}'), onTap: () => onSelected(x));
+                    return ListTile(dense: true, leading: Icon(x['adviser_id'] == myId ? Icons.star_rounded : Icons.groups, color: x['adviser_id'] == myId ? advisoryColor.shade700 : null),
+                        title: Text('${x['name']}${rm.isEmpty ? '' : ' · Room $rm'}'), subtitle: Text('${_adviser(x)} · ${_students(x)}'), onTap: () => onSelected(x));
                   },
                 )),
               )),
@@ -175,6 +194,7 @@ class _AddClassState extends State<AddClassScreen> {
               const SizedBox(height: 6),
               Wrap(spacing: 8, runSpacing: 4, children: [for (final s in sections) ChoiceChip(
                 selected: m?['id'] == s['id'],
+                avatar: s['adviser_id'] == myId ? Icon(Icons.star_rounded, size: 16, color: advisoryColor.shade700) : null,
                 label: Text('${s['name']}${(s['homeroom'] ?? '').toString().isEmpty ? '' : ' · Room ${s['homeroom']}'} · ${_students(s)}', style: const TextStyle(fontSize: 12)),
                 onSelected: (_) { sectionCtl.text = '${s['name']}'; roomTouched = false; _onSectionChanged(); },
               )]),
@@ -185,21 +205,42 @@ class _AddClassState extends State<AddClassScreen> {
                   : 'No section or room with this name yet. "${sectionCtl.text.trim()}" will be created as a new section for Grade ${grade ?? ''}.',
                   style: TextStyle(fontSize: 12, color: m != null ? Colors.green.shade800 : Colors.orange.shade800))),
             ])),
-            const SizedBox(height: 14),
-            TextField(controller: roomCtl, onChanged: (_) => roomTouched = true, decoration: const InputDecoration(labelText: 'Room for this class (optional)', hintText: 'e.g. Room 12', border: OutlineInputBorder())),
+            if (!_only) ...[
+              const SizedBox(height: 14),
+              TextField(controller: roomCtl, onChanged: (_) => roomTouched = true, decoration: const InputDecoration(labelText: 'Room for this class (optional)', hintText: 'e.g. Room 12', border: OutlineInputBorder())),
+            ],
           ]),
-          _section('Schedule', Icons.schedule, [ScheduleBlocks(onChanged: (b) => blocks = b)]),
-          if (subj.isNotEmpty && grade != null && sectionCtl.text.trim().isNotEmpty) _section('Review', Icons.fact_check, [
-            Text('${subj.first['name']}', style: Theme.of(c).textTheme.titleSmall),
-            Text('Grade $grade · ${m != null ? m['name'] : sectionCtl.text.trim()}${roomCtl.text.trim().isEmpty ? '' : ' · ${roomCtl.text.trim()}'}'),
-            const SizedBox(height: 8),
-            Text(describeBlocks(blocks).isEmpty ? 'No schedule yet' : describeBlocks(blocks), style: const TextStyle(fontSize: 13)),
-          ]),
+          const SizedBox(height: 4),
+          // ---- adviser option (amber, like the advisory cards)
+          _section('Advisory', Icons.star_rounded, [
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero, title: const Text("I'm the adviser of this section", style: TextStyle(fontWeight: FontWeight.w600)),
+              subtitle: Text(_blocked ? 'This section already has an adviser (${advisers[m!['adviser_id']] ?? 'another teacher'}).'
+                  : _mine ? 'You are already the adviser of this section. It shows as an advisory card.'
+                  : m == null ? 'You will be the adviser of the new section.' : 'This section has no adviser yet. You will become its adviser.'),
+              value: _adviserNow, onChanged: (_blocked || _mine) ? null : (v) => setState(() { wantAdviser = v; if (!v) { advisoryOnly = false; } }),
+            ),
+            if (_adviserNow) CheckboxListTile(
+              contentPadding: EdgeInsets.zero, controlAffinity: ListTileControlAffinity.leading, value: advisoryOnly,
+              title: const Text("I only advise this section (no subject to teach here)"), onChanged: (v) => setState(() => advisoryOnly = v ?? false),
+            ),
+          ], color: dark ? advisoryColor.shade900.withValues(alpha: .25) : advisoryColor.shade50),
+          if (!_only) ...[const SizedBox(height: 4), _section('Schedule', Icons.schedule, [ScheduleBlocks(onChanged: (b) => blocks = b)])],
+          if (grade != null && sectionCtl.text.trim().isNotEmpty && (_only || subj.isNotEmpty)) ...[const SizedBox(height: 4), _section('Review', Icons.fact_check, [
+            if (_only) Text('Advisory only · Grade $grade · ${m != null ? m['name'] : sectionCtl.text.trim()}', style: Theme.of(c).textTheme.titleSmall)
+            else ...[
+              Text('${subj.first['name']}', style: Theme.of(c).textTheme.titleSmall),
+              Text('Grade $grade · ${m != null ? m['name'] : sectionCtl.text.trim()}${roomCtl.text.trim().isEmpty ? '' : ' · ${roomCtl.text.trim()}'}${_adviserNow ? ' · you are the adviser' : ''}'),
+              const SizedBox(height: 8),
+              Text(describeBlocks(blocks).isEmpty ? 'No schedule yet' : describeBlocks(blocks), style: const TextStyle(fontSize: 13)),
+            ],
+          ])],
+          const SizedBox(height: 8),
           if (error != null) Padding(padding: const EdgeInsets.only(bottom: 8), child: Text(error!, style: TextStyle(color: Theme.of(c).colorScheme.error))),
           FilledButton.icon(
-            onPressed: saving || mySubjects.isEmpty || myGrades.isEmpty ? null : _save, style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
+            onPressed: saving || myGrades.isEmpty || (mySubjects.isEmpty && !_only) ? null : _save, style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
             icon: saving ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.check),
-            label: const Text('Confirm class'),
+            label: Text(_only ? 'Become adviser' : 'Confirm class'),
           ),
           const SizedBox(height: 24),
         ]),

@@ -13,30 +13,11 @@ Future<String?> _ask(BuildContext c, String title, String label) async {
 }
 void _run(BuildContext c, Future<dynamic> f) async { try { await f; } catch (e) { if (c.mounted) ScaffoldMessenger.of(c).showSnackBar(SnackBar(content: Text(errorText(e)))); } }
 
-class AdvisoryScreen extends StatelessWidget {
-  final String teacherId; const AdvisoryScreen({super.key, required this.teacherId});
-  @override
-  Widget build(BuildContext c) => Scaffold(
-        floatingActionButton: FloatingActionButton.extended(icon: const Icon(Icons.add), label: const Text('New advisory'), onPressed: () async {
-          final g = await _ask(c, 'Grade level (7-12)', 'Grade'); if (g == null || !c.mounted) return; final n = await _ask(c, 'Section name', 'e.g. Rizal'); if (n == null || !c.mounted) return; final rm = await _ask(c, 'Room (optional)', 'e.g. Room 12'); if (rm == null) return;
-          _run(c, Api.post('/api/sections', {'grade_level': int.tryParse(g), 'name': n, 'homeroom': rm.isEmpty ? null : rm}));
-        }),
-        body: StreamBuilder<List<Map<String, dynamic>>>(
-          stream: sb.from('sections').stream(primaryKey: ['id']).eq('adviser_id', teacherId),
-          builder: (c, s) {
-            if (!s.hasData) return const Center(child: CircularProgressIndicator());
-            if (s.data!.isEmpty) return const Center(child: Text('Create your advisory section to start adding students'));
-            return ListView(children: [for (final x in s.data!) ListTile(leading: const Icon(Icons.class_), title: Text('Grade ${x['grade_level']} - ${x['name']}'), subtitle: Text('Device dept #${x['biometric_dept_no']}'), trailing: const Icon(Icons.chevron_right),
-              onTap: () => Navigator.push(c, MaterialPageRoute(builder: (_) => SectionScreen(section: x))))]);
-          }),
-      );
-}
-
 class SectionScreen extends StatelessWidget {
   final Map<String, dynamic> section; const SectionScreen({super.key, required this.section});
   @override
   Widget build(BuildContext c) => DefaultTabController(length: 3, child: Scaffold(
-        appBar: AppBar(title: Text('Grade ${section['grade_level']} - ${section['name']}'), bottom: const TabBar(tabs: [Tab(text: 'Students'), Tab(text: 'Schedule'), Tab(text: 'Homeroom')])),
+        appBar: AppBar(title: Text('Advisory · Grade ${section['grade_level']} ${section['name']}'), bottom: const TabBar(tabs: [Tab(text: 'Students'), Tab(text: 'Schedule'), Tab(text: 'Homeroom')])),
         body: TabBarView(children: [KeepTabAlive(child: _Students(section['id'])), KeepTabAlive(child: _Schedule(section['id'])), KeepTabAlive(child: HomeroomTab(sectionId: section['id']))])));
 }
 

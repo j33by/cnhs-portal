@@ -3,11 +3,12 @@ import 'package:flutter/services.dart';
 import '../../core/api.dart';
 import '../../core/messenger.dart';
 import 'class_common.dart';
+import 'device_links.dart';
 
 /// Everyone enrolled in the section (boys first, then girls, alphabetical), live. Search, photos, details, absences in this subject.
 class ClassStudentsTab extends StatefulWidget {
-  final String sectionId, subjectId;
-  const ClassStudentsTab({super.key, required this.sectionId, required this.subjectId});
+  final String sectionId, subjectId; final bool isAdviser;
+  const ClassStudentsTab({super.key, required this.sectionId, required this.subjectId, this.isAdviser = false});
   @override
   State<ClassStudentsTab> createState() => _ClassStudentsState();
 }
@@ -76,6 +77,34 @@ class _ClassStudentsState extends State<ClassStudentsTab> {
     ));
   }
 
+  // ---- adviser only: manage who is in the section
+  Future<String?> _prompt(String title, String label, {String initial = ''}) {
+    final t = TextEditingController(text: initial);
+    return showDialog<String>(context: context, builder: (c2) => AlertDialog(
+      title: Text(title), content: TextField(controller: t, autofocus: true, decoration: InputDecoration(labelText: label)),
+      actions: [TextButton(onPressed: () => Navigator.pop(c2), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(c2, t.text.trim()), child: const Text('OK'))]));
+  }
+
+  Future<void> _addStudent() async {
+    final id = await _prompt('Add a student', 'Student ID (e.g. 202627-48213)');
+    if (id == null || id.isEmpty) { return; }
+    try { await Api.post('/api/sections/${widget.sectionId}/students', {'student_no': id}); toast('Student added to the section'); } catch (e) { toastError(e); }
+  }
+
+  Future<void> _menu(Map<String, dynamic> x, String v) async {
+    try {
+      if (v == 'device') { await linkDeviceDialog(context, studentId: x['id'] as String, studentName: _name(x)); }
+      else if (v == 'address') {
+        final a = await _prompt('Edit address', 'Address', initial: '${x['address'] ?? ''}');
+        if (a != null) { await Api.patch('/api/students/${x['id']}', {'address': a}); toast('Address updated'); }
+      } else if (v == 'remove') {
+        final ok = await showDialog<bool>(context: context, builder: (c2) => AlertDialog(title: const Text('Remove from section?'), content: Text('${_name(x)} will no longer be in this section. Their grades and attendance are kept.'),
+            actions: [TextButton(onPressed: () => Navigator.pop(c2, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(c2, true), child: const Text('Remove'))]));
+        if (ok == true) { await Api.delete('/api/sections/${widget.sectionId}/students/${x['id']}'); toast('Removed from the section'); }
+      }
+    } catch (e) { toastError(e); }
+  }
+
   Widget _header(int total, int shown) {
     final myId = sb.auth.currentUser?.id;
     final adviserId = section?['adviser_id'];
@@ -89,6 +118,7 @@ class _ClassStudentsState extends State<ClassStudentsTab> {
         Expanded(child: Text(section == null ? '' : 'Grade ${section!['grade_level']} · ${section!['name']}${(section!['homeroom'] ?? '').toString().isEmpty ? '' : ' · Room ${section!['homeroom']}'}', style: Theme.of(context).textTheme.titleSmall)),
         if (adviserId != null) Chip(visualDensity: VisualDensity.compact, avatar: const Icon(Icons.school, size: 16), label: Text(adviserId == myId ? 'You are the adviser' : 'Adviser: ${adviserName ?? ''}', style: const TextStyle(fontSize: 12))),
       ]),
+      if (widget.isAdviser) Padding(padding: const EdgeInsets.only(top: 8), child: Align(alignment: Alignment.centerLeft, child: FilledButton.tonalIcon(onPressed: _addStudent, icon: const Icon(Icons.person_add), label: const Text('Add student by ID')))),
       const SizedBox(height: 8),
       TextField(controller: search, onChanged: (_) => setState(() {}), decoration: InputDecoration(isDense: true, prefixIcon: const Icon(Icons.search), border: const OutlineInputBorder(),
           hintText: 'Search $total student${total == 1 ? '' : 's'} by name or ID', suffixIcon: search.text.isEmpty ? null : IconButton(icon: const Icon(Icons.close), onPressed: () => setState(search.clear)))),
@@ -119,7 +149,14 @@ class _ClassStudentsState extends State<ClassStudentsTab> {
                       return ListTile(
                         leading: CircleAvatar(backgroundImage: photo != null ? NetworkImage(photo) : null, child: photo == null ? Text('${x['first_name']}'.isEmpty ? '?' : '${x['first_name']}'[0]) : null),
                         title: Text(_name(x)), subtitle: Text('ID ${x['student_no']}  ·  ${x['sex'] == 'M' ? 'Male' : 'Female'}${x['age'] != null ? '  ·  ${x['age']} yrs' : ''}'),
-                        trailing: a == 0 ? null : standingChip(a, free), onTap: () => _details(x),
+                        trailing: widget.isAdviser
+                            ? Row(mainAxisSize: MainAxisSize.min, children: [
+                                if (a > 0) standingChip(a, free),
+                                PopupMenuButton<String>(onSelected: (v) => _menu(x, v), itemBuilder: (_) => const [
+                                  PopupMenuItem(value: 'device', child: Text('Link device ID')), PopupMenuItem(value: 'address', child: Text('Edit address')), PopupMenuItem(value: 'remove', child: Text('Remove from section'))]),
+                              ])
+                            : (a == 0 ? null : standingChip(a, free)),
+                        onTap: () => _details(x),
                       );
                     })),
           ]);

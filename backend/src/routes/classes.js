@@ -39,11 +39,15 @@ module.exports = function mount(app, { sb, wrap, bad, teacherOnly, curYear }) {
     const { data: me } = await sb.from('teachers').select('grade_levels,first_name,last_name').eq('id', q.user.id).single();
     const grade = Number(b.grade_level);
     if (!me.grade_levels.includes(grade)) throw bad(`Grade ${b.grade_level || ''} is not one of your grade levels. Add it in Profile first.`);
-    const { data: mySub } = await sb.from('teacher_subjects').select('code,name').eq('teacher_id', q.user.id).eq('code', String(b.subject_code || '').toUpperCase()).maybeSingle();
-    if (!mySub) throw bad('Choose one of your subjects. Add it in the Subjects tab first.');
-    const slots = cleanSchedules(b.schedules);
+    const advisoryOnly = b.advisory_only === true, wantAdviser = advisoryOnly || b.adviser === true;   // "I'm the adviser" / "I only advise this section"
+    let mySub = null, slots = [];
+    if (!advisoryOnly) {
+      mySub = (await sb.from('teacher_subjects').select('code,name').eq('teacher_id', q.user.id).eq('code', String(b.subject_code || '').toUpperCase()).maybeSingle()).data;
+      if (!mySub) throw bad('Choose one of your subjects. Add it in the Subjects tab first.');
+      slots = cleanSchedules(b.schedules);
+    }
 
-    // section: reuse an existing one (same grade + name, any adviser) or create it
+    // section: reuse an existing one (same grade + section name OR room, any adviser) or create it
     let sec = null; const name = String(b.section_name || '').trim();
     if (b.section_id) {
       sec = (await sb.from('sections').select('*').eq('id', b.section_id).maybeSingle()).data;
@@ -52,28 +56,41 @@ module.exports = function mount(app, { sb, wrap, bad, teacherOnly, curYear }) {
       if (!name || name.length > 30) throw bad('Enter the section name (up to 30 characters)');
       const norm = v => String(v || '').trim().toLowerCase();
       const { data: inGrade } = await sb.from('sections').select('*').eq('school_year_id', y.id).eq('grade_level', grade);
-      sec = (inGrade || []).find(x => norm(x.name) === norm(name) || (x.homeroom && norm(x.homeroom) === norm(name))) || null;   // typed a section OR a room that already exists
+      sec = (inGrade || []).find(x => norm(x.name) === norm(name) || (x.homeroom && norm(x.homeroom) === norm(name))) || null;
     }
-    let sub = (await sb.from('subjects').select('id,name').eq('code', mySub.code).maybeSingle()).data;
-    if (!sub) { const ins = await sb.from('subjects').insert({ code: mySub.code, name: mySub.name }).select('id,name').single(); if (ins.error) throw ins.error; sub = ins.data; }
-    if (sec) {
-      const { data: ex } = await sb.from('section_subjects').select('teacher_id,teachers(first_name,last_name)').match({ section_id: sec.id, subject_id: sub.id }).maybeSingle();
-      if (ex && ex.teacher_id !== q.user.id) throw bad(`${ex.teachers?.first_name} ${ex.teachers?.last_name} already teaches ${mySub.name} in this section`, 409);
+    if (wantAdviser && sec?.adviser_id && sec.adviser_id !== q.user.id) {      // somebody else already advises this section
+      const { data: a } = await sb.from('teacher_names').select('first_name,last_name').eq('id', sec.adviser_id).maybeSingle();
+      throw bad(`Grade ${grade} ${sec.name} already has an adviser${a ? ` (${a.first_name} ${a.last_name})` : ''}.`, 409);
     }
-    await conflictCheck(q.user.id, sec?.id, slots);                         // nothing is written until every check passes
+    let sub = null;
+    if (!advisoryOnly) {
+      sub = (await sb.from('subjects').select('id,name').eq('code', mySub.code).maybeSingle()).data;
+      if (!sub) { const ins = await sb.from('subjects').insert({ code: mySub.code, name: mySub.name }).select('id,name').single(); if (ins.error) throw ins.error; sub = ins.data; }
+      if (sec) {
+        const { data: ex } = await sb.from('section_subjects').select('teacher_id,teachers(first_name,last_name)').match({ section_id: sec.id, subject_id: sub.id }).maybeSingle();
+        if (ex && ex.teacher_id !== q.user.id) throw bad(`${ex.teachers?.first_name} ${ex.teachers?.last_name} already teaches ${mySub.name} in this section`, 409);
+      }
+      await conflictCheck(q.user.id, sec?.id, slots);                         // nothing is written until every check passes
+    }
 
     let created = false;
     if (!sec) {
       const { data: used } = await sb.from('sections').select('biometric_dept_no').not('biometric_dept_no', 'is', null);
       const taken = new Set((used || []).map(u => u.biometric_dept_no)); let dept = 1; while (taken.has(dept)) dept++;
-      const ins = await sb.from('sections').insert({ school_year_id: y.id, grade_level: grade, name, adviser_id: null, homeroom: (b.room || '').trim() || null, biometric_dept_no: dept <= 16 ? dept : null }).select().single();
+      const ins = await sb.from('sections').insert({ school_year_id: y.id, grade_level: grade, name, adviser_id: wantAdviser ? q.user.id : null, homeroom: (b.room || '').trim() || null, biometric_dept_no: dept <= 16 ? dept : null }).select().single();
       if (ins.error) throw ins.error; sec = ins.data; created = true;
+    } else if (wantAdviser && !sec.adviser_id) {
+      const up = await sb.from('sections').update({ adviser_id: q.user.id }).eq('id', sec.id).is('adviser_id', null).select().single();
+      if (up.error) throw bad('Someone just became the adviser of this section.', 409); sec = up.data;
     }
+    const { count } = await sb.from('students').select('id', { count: 'exact', head: true }).eq('section_id', sec.id).eq('status', 'enrolled');
+    const base = { section_id: sec.id, created_section: created, section_name: sec.name, grade_level: grade, grading_term: sec.grading_term || 1, students: count || 0, you_are_adviser: sec.adviser_id === q.user.id, has_adviser: !!sec.adviser_id };
+    if (advisoryOnly) return r.json({ ...base, advisory_only: true });
+
     const { error: e1 } = await sb.from('section_subjects').upsert({ section_id: sec.id, subject_id: sub.id, teacher_id: q.user.id }, { onConflict: 'section_id,subject_id' }); if (e1) throw e1;
     const { error: e2 } = await insertSlots(sec.id, sub.id, q.user.id, slots, (b.room || '').trim() || sec.homeroom); if (e2) throw e2;
     if (sec.adviser_id && sec.adviser_id !== q.user.id) await notify(sb, [sec.adviser_id], { kind: 'section', title: 'New class in your section', body: `${me.first_name} ${me.last_name} will teach ${mySub.name} to Grade ${grade} ${sec.name}.` });
-    const { count } = await sb.from('students').select('id', { count: 'exact', head: true }).eq('section_id', sec.id).eq('status', 'enrolled');
-    r.json({ section_id: sec.id, subject_id: sub.id, created_section: created, section_name: sec.name, grade_level: grade, grading_term: sec.grading_term || 1, subject_name: mySub.name, students: count || 0, adviser: !!sec.adviser_id });
+    r.json({ ...base, subject_id: sub.id, subject_name: mySub.name });
   }));
 
   app.post('/api/classes/:section_id/:subject_id/schedules', teacherOnly, wrap(async (q, r) => {

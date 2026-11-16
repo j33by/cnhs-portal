@@ -54,3 +54,19 @@ const fake = rows => ({ from: () => ({ select: () => ({ or: async () => ({ data:
   assert.strictEqual(await findConflicts(fake([mine]), { teacherId: 'T1', sectionId: 'S9', rows: [{ day_of_week: 2, start: '08:00', end: '09:00' }] }), null);
   console.log('schedule slot tests passed');
 })();
+// ---- class reminders
+const { dueReminders } = require('./services/reminders');
+(() => {
+  const at = (h, m, dow = 1) => new Date(Date.UTC(2026, 10, 1 + dow, h, m));          // 2026-11-02 is a Monday: fields read as PH local time
+  const teachers = new Map([['T1', { alert_minutes: 10 }], ['T2', { alert_minutes: 0 }]]);
+  const slot = (o = {}) => ({ id: 's1', teacher_id: 'T1', day_of_week: 1, start_time: '08:00:00', ...o });
+  assert.strictEqual(dueReminders({ slots: [slot()], teachers, now: at(7, 52) })[0].minutes, 8);   // 8 minutes before
+  assert.strictEqual(dueReminders({ slots: [slot()], teachers, now: at(7, 50) })[0].minutes, 10);  // exactly at the lead time
+  assert.strictEqual(dueReminders({ slots: [slot()], teachers, now: at(7, 49) }).length, 0);       // too early
+  assert.strictEqual(dueReminders({ slots: [slot()], teachers, now: at(8, 0) }).length, 0);        // already started
+  assert.strictEqual(dueReminders({ slots: [slot({ teacher_id: 'T2' })], teachers, now: at(7, 55) }).length, 0);   // reminders off
+  assert.strictEqual(dueReminders({ slots: [slot({ day_of_week: 2 })], teachers, now: at(7, 55) }).length, 0);    // other day
+  throws(() => cleanProfile('teacher', { alert_minutes: 7 }), /minutes/);
+  assert.deepStrictEqual(cleanProfile('teacher', { alert_minutes: 15 }), { alert_minutes: 15 });
+  console.log('class reminder tests passed');
+})();

@@ -1,12 +1,13 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../core/streams.dart';
+import '../../core/teacher_data.dart';
 import '../../core/usb_sync.dart';
 import '../../widgets/shared.dart';
 import '../profile_screen.dart';
-import 'advisory.dart';
 import 'bind_requests.dart';
 import 'classes.dart';
+import 'home_tab.dart';
 import 'my_subjects.dart';
 import 'usb_panel.dart';
 
@@ -32,9 +33,11 @@ class _TeacherHomeState extends State<TeacherHome> {
   late final Stream<int> unread = unreadStream(), pending = pendingBindsStream();
 
   @override
-  void initState() { super.initState(); usb.start(); }
+  void initState() { super.initState(); usb.start(); TeacherData.i.start(widget.profile['id'] as String); }
   @override
-  void dispose() { usb.dispose(); super.dispose(); }
+  void dispose() { usb.dispose(); TeacherData.i.stop(); super.dispose(); }
+
+  void _openClass(Map<String, dynamic> cls) => Navigator.push(context, MaterialPageRoute(builder: (_) => ClassScreen.from(cls)));
 
   Widget _icon(_Tab t, bool selected) {
     final icon = Icon(selected ? t.selectedIcon : t.icon);
@@ -46,7 +49,7 @@ class _TeacherHomeState extends State<TeacherHome> {
   Widget build(BuildContext c) {
     final desktop = Platform.isWindows;
     final tabs = <_Tab>[
-      _Tab('Advisory', Icons.groups_outlined, Icons.groups, AdvisoryScreen(teacherId: widget.profile['id'])),
+      _Tab('Home', Icons.home_outlined, Icons.home, HomeTab(profile: widget.profile, onOpenClass: _openClass)),
       _Tab('Classes', Icons.menu_book_outlined, Icons.menu_book, MyClasses(teacherId: widget.profile['id'])),
       const _Tab('Subjects', Icons.library_books_outlined, Icons.library_books, MySubjects()),
       _Tab('Requests', Icons.how_to_reg_outlined, Icons.how_to_reg, const BindRequests(), badge: pending),

@@ -31,6 +31,7 @@ function cleanProfile(role, b) {
     if (has('birthdate')) f.birthdate = date(b.birthdate, 'Birthdate');
     if (has('address')) f.address = str(b.address, 'Address', { max: 200 });
     if (has('contact_no')) f.contact_no = str(b.contact_no, 'Contact number', { max: 30 });
+    if (has('alert_minutes')) { const m = Number(b.alert_minutes); if (![0, 5, 10, 15, 20, 30, 45, 60].includes(m)) throw bad('Choose Off or 5, 10, 15, 20, 30, 45 or 60 minutes'); f.alert_minutes = m; }
     if (has('grade_levels')) {
       const g = b.grade_levels;
       if (!Array.isArray(g) || g.length < 1 || g.length > 5 || g.some(x => !Number.isInteger(x) || x < 7 || x > 12) || new Set(g).size !== g.length) throw bad('Choose 1 to 5 grade levels (7 to 12)');

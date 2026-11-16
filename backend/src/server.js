@@ -8,6 +8,7 @@ const { notify } = require('./services/notify');
 const mountClasses = require('./routes/classes');
 const { cleanProfile } = require('./services/profile');
 const { findConflicts, parseSlots } = require('./services/slots');
+const { sendClassReminders } = require('./services/reminders');
 
 const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 const app = express(); app.use(cors()); app.use(express.json({ limit: '2mb' }));
@@ -51,6 +52,12 @@ const cleanSubjects = list => {
   if (new Set(rows.map(x => x.code)).size !== rows.length) throw bad('Two subjects have the same code');
   return rows;
 };
+// Class reminders. Render's free plan sleeps when idle, so ALSO call this URL every minute from a free cron service
+// (cron-job.org): https://YOUR-API.onrender.com/cron/class-reminders?key=CRON_SECRET   (safe to call repeatedly)
+app.get('/cron/class-reminders', wrap(async (q, r) => {
+  if (!process.env.CRON_SECRET || q.query.key !== process.env.CRON_SECRET) throw bad('Forbidden', 403);
+  r.json(await sendClassReminders(sb));
+}));
 app.get('/health', (_q, r) => r.json({ ok: true }));
 app.use('/api', auth);
 
@@ -234,4 +241,5 @@ app.post('/api/usb/written', teacherOnly, wrap(async (q, r) => { await sb.from('
 app.post('/api/attendance/close-day', teacherOnly, wrap(async (q, r) => r.json(await closeDay(sb, q.body.date || new Date(Date.now() + 8 * 36e5).toISOString().slice(0, 10)))));
 
 app.use((err, _q, r, _n) => { console.error(err); r.status(err.status || 500).json({ error: err.message || 'Server error' }); });
+setInterval(() => sendClassReminders(sb).catch(e => console.error('class reminders:', e.message)), 60000);   // while the server is awake
 app.listen(process.env.PORT || 3000, () => console.log('CNHS API up'));
