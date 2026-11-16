@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 
 /// Keeps a tab's state (and its live subscriptions) alive when you swipe away, so it never reloads from scratch.
-class KeepAlive extends StatefulWidget {
+class KeepTabAlive extends StatefulWidget {
   final Widget child;
-  const KeepAlive({super.key, required this.child});
+  const KeepTabAlive({super.key, required this.child});
   @override
-  State<KeepAlive> createState() => _KeepAliveState();
+  State<KeepTabAlive> createState() => _KeepAliveState();
 }
 
-class _KeepAliveState extends State<KeepAlive> with AutomaticKeepAliveClientMixin {
+class _KeepAliveState extends State<KeepTabAlive> with AutomaticKeepAliveClientMixin {
   @override
   bool get wantKeepAlive => true;
   @override

@@ -37,7 +37,7 @@ class SectionScreen extends StatelessWidget {
   @override
   Widget build(BuildContext c) => DefaultTabController(length: 3, child: Scaffold(
         appBar: AppBar(title: Text('Grade ${section['grade_level']} - ${section['name']}'), bottom: const TabBar(tabs: [Tab(text: 'Students'), Tab(text: 'Schedule'), Tab(text: 'Homeroom')])),
-        body: TabBarView(children: [KeepAlive(child: _Students(section['id'])), KeepAlive(child: _Schedule(section['id'])), KeepAlive(child: HomeroomTab(sectionId: section['id']))])));
+        body: TabBarView(children: [KeepTabAlive(child: _Students(section['id'])), KeepTabAlive(child: _Schedule(section['id'])), KeepTabAlive(child: HomeroomTab(sectionId: section['id']))])));
 }
 
 class _Students extends StatelessWidget {

@@ -88,7 +88,7 @@ class _ChildPage extends StatelessWidget {
       ListTile(dense: true, leading: const Icon(Icons.badge), title: Text('${s['first_name']} ${s['last_name']}'), subtitle: Text('Student ID ${s['student_no']}  ·  Grade ${s['grade_level']}')),
       const TabBar(tabs: [Tab(text: 'Attendance'), Tab(text: 'Grades'), Tab(text: 'Schedule')]),
       Expanded(child: TabBarView(children: [
-        KeepAlive(child: AttendanceView(id)), KeepAlive(child: GradesView(id)), KeepAlive(child: ScheduleView(s['section_id'] as String?)),
+        KeepTabAlive(child: AttendanceView(id)), KeepTabAlive(child: GradesView(id)), KeepTabAlive(child: ScheduleView(s['section_id'] as String?)),
       ])),
     ]));
   }

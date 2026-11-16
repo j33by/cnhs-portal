@@ -185,11 +185,11 @@ class ClassScreen extends StatelessWidget {
             bottom: const TabBar(isScrollable: true, tabAlignment: TabAlignment.start, tabs: [Tab(text: 'Students'), Tab(text: 'Class record'), Tab(text: 'Attendance'), Tab(text: 'Grades'), Tab(text: 'Schedule')]),
           ),
           body: TabBarView(children: [
-            KeepAlive(child: ClassStudentsTab(sectionId: sectionId, subjectId: subjectId)),
-            KeepAlive(child: RecordTab(sectionId: sectionId, subjectId: subjectId, initialTerm: term)),
-            KeepAlive(child: AttendanceTab(sectionId: sectionId, subjectId: subjectId)),
-            KeepAlive(child: GradesTab(sectionId: sectionId, subjectId: subjectId, initialTerm: term)),
-            KeepAlive(child: ClassScheduleTab(sectionId: sectionId, subjectId: subjectId)),
+            KeepTabAlive(child: ClassStudentsTab(sectionId: sectionId, subjectId: subjectId)),
+            KeepTabAlive(child: RecordTab(sectionId: sectionId, subjectId: subjectId, initialTerm: term)),
+            KeepTabAlive(child: AttendanceTab(sectionId: sectionId, subjectId: subjectId)),
+            KeepTabAlive(child: GradesTab(sectionId: sectionId, subjectId: subjectId, initialTerm: term)),
+            KeepTabAlive(child: ClassScheduleTab(sectionId: sectionId, subjectId: subjectId)),
           ]),
         ),
       );
