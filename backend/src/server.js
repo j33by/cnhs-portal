@@ -1,7 +1,8 @@
 const express = require('express'), cors = require('cors'), multer = require('multer');
 const { createClient } = require('@supabase/supabase-js');
 const { nextId } = require('./services/ids');
-const { ingestLogs, closeDay, relinkPunches } = require('./services/attendance');
+const { ingestLogs, closeDay, relinkPunches, processClosures } = require('./services/attendance');
+const { applyDueCancellations } = require('./services/noclass');
 const { parseEmployeeForm, } = require('./services/biometric');
 const { buildEmployeeForm } = require('./services/xlsWriter');
 const { notify } = require('./services/notify');
@@ -56,7 +57,7 @@ const cleanSubjects = list => {
 // (cron-job.org): https://YOUR-API.onrender.com/cron/class-reminders?key=CRON_SECRET   (safe to call repeatedly)
 app.get('/cron/class-reminders', wrap(async (q, r) => {
   if (!process.env.CRON_SECRET || q.query.key !== process.env.CRON_SECRET) throw bad('Forbidden', 403);
-  r.json(await sendClassReminders(sb));
+  r.json({ ...await sendClassReminders(sb), ...await processClosures(sb), ...await applyDueCancellations(sb) });   // reminders + 30-min auto-absent + no-class marks
 }));
 app.get('/health', (_q, r) => r.json({ ok: true }));
 app.use('/api', auth);
@@ -241,5 +242,9 @@ app.post('/api/usb/written', teacherOnly, wrap(async (q, r) => { await sb.from('
 app.post('/api/attendance/close-day', teacherOnly, wrap(async (q, r) => r.json(await closeDay(sb, q.body.date || new Date(Date.now() + 8 * 36e5).toISOString().slice(0, 10)))));
 
 app.use((err, _q, r, _n) => { console.error(err); r.status(err.status || 500).json({ error: err.message || 'Server error' }); });
-setInterval(() => sendClassReminders(sb).catch(e => console.error('class reminders:', e.message)), 60000);   // while the server is awake
+setInterval(() => {                                                          // while the server is awake (cron-job.org keeps it awake and calls the same work)
+  sendClassReminders(sb).catch(e => console.error('class reminders:', e.message));
+  processClosures(sb).catch(e => console.error('auto absent:', e.message));
+  applyDueCancellations(sb).catch(e => console.error('no class:', e.message));
+}, 60000);
 app.listen(process.env.PORT || 3000, () => console.log('CNHS API up'));

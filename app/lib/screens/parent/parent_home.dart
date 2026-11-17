@@ -3,12 +3,13 @@ import 'package:flutter/material.dart';
 import '../../core/api.dart';
 import '../../core/messenger.dart';
 import '../../core/streams.dart';
-import '../../widgets/app_shell.dart';
-import '../../widgets/keep_alive.dart';
+import '../../widgets/family_home.dart';
+import '../../widgets/family_shell.dart';
 import '../../widgets/shared.dart';
+import '../../widgets/ui.dart';
 import '../profile_screen.dart';
 
-/// Parent app: hamburger menu with one entry per linked child. Sign out is at the bottom of the Profile screen.
+/// Parent app: Home, Attendance, Grades, Alerts, Profile. With more than one child a switcher sits above the child's tabs.
 class ParentHome extends StatefulWidget {
   final Map<String, dynamic> profile;
   const ParentHome({super.key, required this.profile});
@@ -19,20 +20,40 @@ class ParentHome extends StatefulWidget {
 class _ParentHomeState extends State<ParentHome> {
   List<Map<String, dynamic>> links = [];
   final kids = <String, Map<String, dynamic>>{};
+  final sectionLabels = <String, String>{};
   bool loaded = false;
+  String? selectedKid;
   StreamSubscription<dynamic>? _links, _kids;
   late final Stream<int> unread = unreadStream();
   final idCtl = TextEditingController();
+  final nav = ValueNotifier<String>('home');
 
   @override
   void initState() {
     super.initState();
     _links = sb.from('parent_links').stream(primaryKey: ['id']).eq('parent_id', sb.auth.currentUser!.id).listen((rows) { if (mounted) { setState(() { links = rows; loaded = true; }); } });
     // Row-level security only returns students whose link was approved, so this is exactly "my children" (live).
-    _kids = sb.from('students').stream(primaryKey: ['id']).listen((rows) { if (mounted) { setState(() { kids..clear()..addAll({for (final r in rows) r['id'] as String: r}); }); } });
+    _kids = sb.from('students').stream(primaryKey: ['id']).listen((rows) {
+      if (!mounted) { return; }
+      setState(() { kids..clear()..addAll({for (final r in rows) r['id'] as String: r}); });
+      for (final r in rows) { _ensureSection(r['section_id'] as String?); }
+    });
   }
   @override
-  void dispose() { _links?.cancel(); _kids?.cancel(); idCtl.dispose(); super.dispose(); }
+  void dispose() { _links?.cancel(); _kids?.cancel(); idCtl.dispose(); nav.dispose(); super.dispose(); }
+
+  Future<void> _ensureSection(String? id) async {
+    if (id == null || sectionLabels.containsKey(id)) { return; }
+    sectionLabels[id] = '';
+    try {
+      final s = await sb.from('sections').select('name,grade_level').eq('id', id).single();
+      if (mounted) { setState(() => sectionLabels[id] = 'Grade ${s['grade_level']} · ${s['name']}'); }
+    } catch (_) { sectionLabels.remove(id); }
+  }
+
+  Future<String?> _kidPhoto(String id) async {
+    try { final p = await sb.from('kid_photos').select('photo_url').eq('id', id).maybeSingle(); return p?['photo_url'] as String?; } catch (_) { return null; }
+  }
 
   Future<void> _bind() async {
     try {
@@ -44,66 +65,74 @@ class _ParentHomeState extends State<ParentHome> {
 
   void _dialog() => showDialog(context: context, builder: (_) => AlertDialog(
       title: const Text('Link your child'),
-      content: TextField(controller: idCtl, autofocus: true, decoration: const InputDecoration(labelText: 'Student ID (e.g. 202627-48213)')),
+      content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('Enter your child\'s Student ID. A teacher approves the link before you can see anything.', style: TextStyle(fontSize: 13)),
+        const SizedBox(height: 12),
+        TextField(controller: idCtl, autofocus: true, decoration: const InputDecoration(labelText: 'Student ID (e.g. 202627-48213)', border: OutlineInputBorder())),
+      ]),
       actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')), FilledButton(onPressed: _bind, child: const Text('Send request'))]));
+
+  Widget _requests(List<Map<String, dynamic>> list) => Padding(padding: const EdgeInsets.only(bottom: 20), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const SectionTitle('Link requests', icon: Icons.link),
+        for (final l in list) Padding(padding: const EdgeInsets.only(bottom: 8), child: SoftCard(child: Row(children: [
+          const CircleAvatar(child: Icon(Icons.child_care)), const SizedBox(width: 12),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('${l['student_name'] ?? 'Student'}', style: const TextStyle(fontWeight: FontWeight.bold)),
+            Text('${l['student_no'] ?? ''}', style: const TextStyle(fontSize: 12.5)),
+          ])),
+          Pill(l['status'] == 'pending' ? 'Waiting for a teacher' : 'Declined', l['status'] == 'pending' ? Colors.amber.shade800 : Colors.red, icon: l['status'] == 'pending' ? Icons.hourglass_top : Icons.block),
+        ]))),
+      ]));
+
+  Widget _noChild(List<Map<String, dynamic>> open) => ListView(padding: const EdgeInsets.all(16), children: [
+        if (open.isNotEmpty) _requests(open),
+        EmptyState(icon: Icons.family_restroom, title: open.isEmpty ? 'Link your child' : 'Waiting for approval',
+            message: open.isEmpty ? 'Enter your child\'s Student ID. After a teacher approves, you will see their attendance, grades and schedule here.' : 'Once a teacher approves the request, your child appears here.',
+            action: FilledButton.icon(onPressed: _dialog, icon: const Icon(Icons.person_add), label: const Text('Link a child'))),
+      ]);
+
+  Widget _switcher(List<Map<String, dynamic>> approved, String sel) => Container(
+        height: 62, width: double.infinity, color: Theme.of(context).colorScheme.surfaceContainerLow,
+        child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10), children: [
+          for (final l in approved) Padding(padding: const EdgeInsets.only(right: 8), child: ChoiceChip(
+            selected: l['student_id'] == sel,
+            avatar: CircleAvatar(radius: 11, child: Text(_first(l).isEmpty ? '?' : _first(l)[0].toUpperCase(), style: const TextStyle(fontSize: 11))),
+            label: Text(_first(l)), onSelected: (_) => setState(() => selectedKid = l['student_id'] as String),
+          )),
+        ]),
+      );
+
+  String _first(Map<String, dynamic> l) => '${kids[l['student_id']]?['first_name'] ?? '${l['student_name'] ?? 'Child'}'.split(' ').first}';
 
   @override
   Widget build(BuildContext c) {
     if (!loaded) { return const Scaffold(body: Center(child: CircularProgressIndicator())); }
-    final approved = links.where((l) => l['status'] == 'approved').toList()..sort((a, b) => '${a['student_name']}'.compareTo('${b['student_name']}'));
+    final approved = links.where((l) => l['status'] == 'approved' && kids[l['student_id']] != null).toList()..sort((a, b) => _first(a).compareTo(_first(b)));
+    final open = links.where((l) => l['status'] != 'approved').toList();
+    final sel = approved.any((l) => l['student_id'] == selectedKid) ? selectedKid : (approved.isEmpty ? null : approved.first['student_id'] as String);
+    final kid = sel == null ? null : kids[sel];
     final pending = links.where((l) => l['status'] == 'pending').length;
-    String nameOf(Map<String, dynamic> l) => '${kids[l['student_id']]?['first_name'] ?? '${l['student_name'] ?? 'Child'}'.split(' ').first}';
+    final sectionId = kid?['section_id'] as String?, name = kid == null ? '' : '${kid['first_name']} ${kid['last_name']}';
+    final label = kid == null ? null : (sectionId != null && (sectionLabels[sectionId] ?? '').isNotEmpty ? sectionLabels[sectionId] : 'Grade ${kid['grade_level']} · not in a section yet');
+    Widget needChild() => _noChild(open);
     return StreamBuilder<int>(
       stream: unread, initialData: 0,
-      builder: (c, u) => HamburgerShell(
-        header: DrawerProfileHeader(name: '${widget.profile['full_name']}', photo: widget.profile['photo_url'] as String?, line1: 'Parent / Guardian', line2: '${widget.profile['email'] ?? ''}'),
-        entries: [
-          const ShellHeading('My children'),
-          for (final l in approved) ShellItem(
-            id: 'kid:${l['student_id']}', label: nameOf(l), icon: Icons.child_care,
-            leading: CircleAvatar(radius: 14, child: Text(nameOf(l).isEmpty ? '?' : nameOf(l)[0].toUpperCase())),
-            build: () => _ChildPage(student: kids[l['student_id']], link: l),
-          ),
-          if (approved.isEmpty) const ShellHeading('No linked child yet'),
-          ShellAction('Link a child', Icons.person_add, _dialog),
-          const ShellHeading('Account'),
-          ShellItem(id: 'requests', label: 'Requests', icon: Icons.link, badge: pending, build: () => _Requests(links: links)),
-          ShellItem(id: 'alerts', label: 'Notifications', icon: Icons.notifications, badge: u.data ?? 0, build: () => const NotificationsView()),
-          ShellItem(id: 'profile', label: 'Profile', icon: Icons.person, build: () => const ProfileTab()),
+      builder: (c, u) => FamilyShell(
+        selected: nav,
+        actions: [IconButton(tooltip: 'Link a child', icon: Badge(isLabelVisible: pending > 0, label: Text('$pending'), child: const Icon(Icons.person_add_alt_1)), onPressed: _dialog)],
+        top: (id) => approved.length > 1 && (id == 'home' || id == 'attendance' || id == 'grades') ? _switcher(approved, sel!) : null,
+        tabs: [
+          FamilyTab(id: 'home', label: 'Home', icon: Icons.home_outlined, selectedIcon: Icons.home, build: () => kid == null ? needChild() : FamilyHome(
+              key: ValueKey('home-$sel'), parent: true, studentId: sel!, name: name, studentNo: '${kid['student_no']}', sectionId: sectionId, classLabel: label,
+              onGo: (t) => nav.value = t, loadPhoto: () => _kidPhoto(sel!), extra: [if (open.isNotEmpty) _requests(open)])),
+          FamilyTab(id: 'attendance', label: 'Attendance', icon: Icons.how_to_reg_outlined, selectedIcon: Icons.how_to_reg, build: () => kid == null ? needChild()
+              : AttendanceView(sel!, key: ValueKey('att-$sel'), sectionId: sectionId, studentName: name, showSubjects: true)),
+          FamilyTab(id: 'grades', label: 'Grades', icon: Icons.school_outlined, selectedIcon: Icons.school, build: () => kid == null ? needChild()
+              : GradesView(sel!, key: ValueKey('gr-$sel'), name: name, studentNo: '${kid['student_no']}', classLabel: label)),
+          FamilyTab(id: 'alerts', label: 'Alerts', icon: Icons.notifications_outlined, selectedIcon: Icons.notifications, badge: u.data ?? 0, build: () => const NotificationsView()),
+          FamilyTab(id: 'profile', label: 'Profile', icon: Icons.person_outline, selectedIcon: Icons.person, build: () => const ProfileTab()),
         ],
       ),
     );
-  }
-}
-
-class _ChildPage extends StatelessWidget {
-  final Map<String, dynamic>? student; final Map<String, dynamic> link;
-  const _ChildPage({required this.student, required this.link});
-  @override
-  Widget build(BuildContext c) {
-    final s = student;
-    if (s == null) { return const Center(child: CircularProgressIndicator()); }
-    final id = s['id'] as String;
-    return DefaultTabController(length: 3, child: Column(children: [
-      ListTile(dense: true, leading: const Icon(Icons.badge), title: Text('${s['first_name']} ${s['last_name']}'), subtitle: Text('Student ID ${s['student_no']}  ·  Grade ${s['grade_level']}')),
-      const TabBar(tabs: [Tab(text: 'Attendance'), Tab(text: 'Grades'), Tab(text: 'Schedule')]),
-      Expanded(child: TabBarView(children: [
-        KeepTabAlive(child: AttendanceView(id)), KeepTabAlive(child: GradesView(id)), KeepTabAlive(child: ScheduleView(s['section_id'] as String?)),
-      ])),
-    ]));
-  }
-}
-
-class _Requests extends StatelessWidget {
-  final List<Map<String, dynamic>> links;
-  const _Requests({required this.links});
-  @override
-  Widget build(BuildContext c) {
-    if (links.isEmpty) { return const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('Open the menu and choose "Link a child", then enter your child\'s Student ID. A teacher approves the link.', textAlign: TextAlign.center))); }
-    return ListView(children: [for (final l in links) ListTile(
-      leading: const Icon(Icons.child_care),
-      title: Text('${l['student_name'] ?? 'Student'}'), subtitle: Text('${l['student_no'] ?? ''}${l['status'] == 'pending' ? '  ·  waiting for a teacher' : l['status'] == 'rejected' ? '  ·  declined' : ''}'),
-      trailing: Chip(label: Text('${l['status']}'), backgroundColor: l['status'] == 'approved' ? Colors.green.shade100 : l['status'] == 'pending' ? Colors.amber.shade100 : Colors.red.shade100),
-    )]);
   }
 }

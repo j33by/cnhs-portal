@@ -5,6 +5,12 @@ const { isWeekday, phToday } = require('./records');
 const t12 = t => { let [h, m] = t.split(':'); h = +h; return `${h % 12 || 12}:${m} ${h >= 12 ? 'PM' : 'AM'}`; };
 const phParts = ts => { const d = new Date(new Date(ts).getTime() + 8 * 36e5).toISOString(); return { date: d.slice(0, 10), time: d.slice(11, 19) }; };
 const daysAgo = (date, n) => new Date(Date.now() + 8 * 36e5 - n * 864e5).toISOString().slice(0, 10) <= date;   // within last n days
+const parentsOfMany = async (sb, ids) => {                                 // Map(studentId -> [parentId])
+  const m = new Map(); if (!ids.length) return m;
+  const { data } = await sb.from('parent_links').select('parent_id,student_id').in('student_id', ids).eq('status', 'approved');
+  for (const l of data || []) { if (!m.has(l.student_id)) m.set(l.student_id, []); m.get(l.student_id).push(l.parent_id); }
+  return m;
+};
 const parentsOf = async (sb, sid) => (await sb.from('parent_links').select('parent_id').eq('student_id', sid).eq('status', 'approved')).data?.map(l => l.parent_id) || [];
 
 // Recompute one student's day from ALL stored punches (not just this file), then notify if something new happened.
@@ -50,24 +56,51 @@ async function ingestLogs(sb, text) {
   // Days strictly before the newest punched day are complete -> mark no-shows absent. Today is closed by hand.
   const dates = [...new Set(punches.map(p => p.date))].sort(), last = dates[dates.length - 1]; let absent = 0;
   for (const d of dates.filter(d => d < last)) absent += (await closeDay(sb, d)).absent;
+  if (last <= phNowParts().date && isWeekday(last)) await markSynced(sb, last);   // 30 min from now: no punch => absent
   await sb.from('usb_sync_state').update({ last_ingest: new Date().toISOString() }).eq('id', 1);
   return { punches: punches.length, newPunches: fresh.length, daysUpdated: touched.size, absentMarked: absent };
 }
 
-// Students whose section has class that weekday and who have no record for the date -> Absent.
-async function closeDay(sb, date) {
+// Students whose section has class that weekday and who have no record for the date -> Absent (and the family is told).
+// opts.syncedMin (minutes after midnight, PH time): only sections whose first class had already started when the logs were copied
+// are closed, so a USB read BEFORE school starts can never mark anybody absent.
+async function closeDay(sb, date, opts = {}) {
   if (!isWeekday(date)) return { absent: 0 };
   const dow = new Date(date + 'T00:00:00Z').getUTCDay();
-  const { data: scheds } = await sb.from('schedules').select('section_id').eq('day_of_week', dow);
-  const secIds = [...new Set((scheds || []).map(s => s.section_id))]; if (!secIds.length) return { absent: 0 };
+  const { data: scheds } = await sb.from('schedules').select('section_id,start_time').eq('day_of_week', dow);
+  const firstStart = new Map();                                              // section -> first class (minutes)
+  for (const s of scheds || []) { const [h, m] = s.start_time.split(':'); const v = +h * 60 + +m; if (!firstStart.has(s.section_id) || v < firstStart.get(s.section_id)) firstStart.set(s.section_id, v); }
+  const secIds = [...firstStart].filter(([, v]) => opts.syncedMin == null || v <= opts.syncedMin).map(([k]) => k);
+  if (!secIds.length) return { absent: 0 };
   const [{ data: stu }, { data: have }] = await Promise.all([sb.from('students').select('id,first_name,section_id,created_at').in('section_id', secIds).eq('status', 'enrolled'), sb.from('daily_attendance').select('student_id').eq('att_date', date)]);
   const got = new Set((have || []).map(h => h.student_id)); let absent = 0;
-  for (const s of (stu || []).filter(s => !got.has(s.id) && s.created_at.slice(0, 10) <= date)) {
-    await sb.from('daily_attendance').upsert({ student_id: s.id, section_id: s.section_id, att_date: date, status: 'A', punches: 0, source: 'biometric' }, { onConflict: 'student_id,att_date' });
-    if (daysAgo(date, 2)) await notify(sb, [s.id, ...await parentsOf(sb, s.id)], { kind: 'attendance', title: `${s.first_name} is absent`, body: `No time-in recorded on ${date}.`, data: { student_id: s.id, date, status: 'A' } });
+  const todo = (stu || []).filter(s => !got.has(s.id) && s.created_at.slice(0, 10) <= date);
+  const parents = await parentsOfMany(sb, todo.map(s => s.id));
+  for (const s of todo) {
+    await sb.from('daily_attendance').upsert({ student_id: s.id, section_id: s.section_id, att_date: date, status: 'A', punches: 0, source: 'biometric', remarks: 'Auto: no fingerprint punch' }, { onConflict: 'student_id,att_date' });
+    if (daysAgo(date, 2)) await notify(sb, [s.id, ...(parents.get(s.id) || [])], { kind: 'attendance', title: `${s.first_name} is marked absent`,
+      body: `No fingerprint punch was recorded on ${date}. If this is a mistake, please tell the adviser. Subject teachers can still mark ${s.first_name} present in class.`, data: { student_id: s.id, date, status: 'A' } });
     absent++;
   }
   return { absent };
+}
+
+// 30 minutes after a USB sync, everyone who still has no punch for that day is marked absent.
+// A later sync of the same day re-opens it (late punches arrive and replace the absent mark).
+const phNowParts = (d = new Date()) => { const x = new Date(d.getTime() + 8 * 36e5).toISOString(); return { date: x.slice(0, 10), min: +x.slice(11, 13) * 60 + +x.slice(14, 16) }; };
+async function markSynced(sb, date) {
+  await sb.from('sync_closures').upsert({ att_date: date, synced_at: new Date().toISOString(), closed_at: null, absent_marked: 0 }, { onConflict: 'att_date' });
+}
+async function processClosures(sb, now = new Date()) {
+  const { data } = await sb.from('sync_closures').select('*').is('closed_at', null).lte('synced_at', new Date(now.getTime() - 30 * 60000).toISOString());
+  let absent = 0;
+  for (const row of data || []) {
+    const at = phNowParts(new Date(row.synced_at));
+    const { absent: n } = await closeDay(sb, row.att_date, at.date === row.att_date ? { syncedMin: at.min } : {});   // same-day sync: only classes already started
+    await sb.from('sync_closures').update({ closed_at: now.toISOString(), absent_marked: n }).eq('att_date', row.att_date);
+    absent += n;
+  }
+  return { closed: (data || []).length, absent };
 }
 
 // A device ID was just linked to a student: attach old punches and rebuild their days (silently).
@@ -76,4 +109,4 @@ async function relinkPunches(sb, stu, bio) {
   const { data } = await sb.from('attendance').select('punched_at').eq('biometric_id', bio);
   for (const date of new Set((data || []).map(r => phParts(r.punched_at).date))) await recomputeDay(sb, stu, bio, date, { notifyUsers: false });
 }
-module.exports = { ingestLogs, closeDay, relinkPunches, parentsOf };
+module.exports = { ingestLogs, closeDay, relinkPunches, parentsOf, parentsOfMany, processClosures, markSynced };

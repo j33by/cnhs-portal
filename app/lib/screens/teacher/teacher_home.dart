@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import '../../core/streams.dart';
 import '../../core/teacher_data.dart';
 import '../../core/usb_sync.dart';
-import '../../widgets/shared.dart';
 import '../profile_screen.dart';
+import 'alerts_tab.dart';
 import 'bind_requests.dart';
 import 'classes.dart';
 import 'home_tab.dart';
@@ -54,12 +54,12 @@ class _TeacherHomeState extends State<TeacherHome> {
       const _Tab('Subjects', Icons.library_books_outlined, Icons.library_books, MySubjects()),
       _Tab('Requests', Icons.how_to_reg_outlined, Icons.how_to_reg, const BindRequests(), badge: pending),
       if (desktop) _Tab('Biometric USB', Icons.usb, Icons.usb, UsbPanel(usb: usb)),
-      _Tab('Alerts', Icons.notifications_outlined, Icons.notifications, const NotificationsView(), badge: unread),
+      _Tab('Alerts', Icons.notifications_outlined, Icons.notifications, const AlertsTab(), badge: unread),
       const _Tab('Profile', Icons.person_outline, Icons.person, ProfileTab()),
     ];
     if (i >= tabs.length) { i = 0; }
     visited.add(i);
-    final body = IndexedStack(index: i, children: [for (var k = 0; k < tabs.length; k++) visited.contains(k) ? tabs[k].page : const SizedBox.shrink()]);
+    final body = IndexedStack(index: i, children: [for (var k = 0; k < tabs.length; k++) visited.contains(k) ? TickerMode(enabled: k == i, child: tabs[k].page) : const SizedBox.shrink()]);
     return Scaffold(
       appBar: AppBar(
         title: Text(tabs[i].label),

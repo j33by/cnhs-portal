@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../core/api.dart';
 import '../core/messenger.dart';
 import '../widgets/avatar_picker.dart';
+import '../widgets/ui.dart';
 
 class _Field {
   final String key, label; final bool req, multiline; final TextInputType? type;
@@ -92,62 +93,90 @@ class _ProfileTabState extends State<ProfileTab> {
     if (mounted) setState(() => saving = false);
   }
 
-  Widget _info(IconData icon, String label, String value) => ListTile(dense: true, leading: Icon(icon), title: Text(label), subtitle: Text(value.isEmpty ? '—' : value));
+  Widget _info(IconData icon, String label, String value) => ListTile(dense: true, leading: Icon(icon), title: Text(label, style: const TextStyle(fontSize: 12.5)), subtitle: Text(value.isEmpty ? '—' : value, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14.5)));
+
+  Widget _hero(BuildContext c, String? id) {
+    final cs = Theme.of(c).colorScheme, name = '${prof!['full_name']}';
+    return Container(
+      width: double.infinity, padding: const EdgeInsets.fromLTRB(16, 22, 16, 26),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [cs.primary, Color.lerp(cs.primary, Colors.black, .35)!]),
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(32)),
+      ),
+      child: Column(children: [
+        Container(padding: const EdgeInsets.all(3), decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle), child: AvatarPicker(url: prof!['photo_url'] as String?, onUploaded: _photo)),
+        const SizedBox(height: 12),
+        Text(name, textAlign: TextAlign.center, style: TextStyle(color: cs.onPrimary, fontSize: 22, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 6),
+        Pill(role == 'student' ? 'Student' : role == 'teacher' ? 'Teacher' : 'Parent / Guardian', Colors.white, icon: Icons.verified_user),
+        if (id != null) ...[
+          const SizedBox(height: 10),
+          InkWell(
+            borderRadius: BorderRadius.circular(20),
+            onTap: () { Clipboard.setData(ClipboardData(text: '$id')); toast('ID copied'); },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+              decoration: BoxDecoration(color: Colors.white.withValues(alpha: .18), borderRadius: BorderRadius.circular(20)),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.badge, size: 16, color: cs.onPrimary), const SizedBox(width: 6),
+                Text('${role == 'student' ? 'Student' : 'Teacher'} ID  $id', style: TextStyle(color: cs.onPrimary, fontWeight: FontWeight.w600, letterSpacing: .5)),
+                const SizedBox(width: 6), Icon(Icons.copy, size: 14, color: cs.onPrimary.withValues(alpha: .8)),
+              ]),
+            ),
+          ),
+        ],
+        const SizedBox(height: 6),
+        Text('Tap the photo to change it', style: TextStyle(color: cs.onPrimary.withValues(alpha: .75), fontSize: 11.5)),
+      ]),
+    );
+  }
 
   @override
   Widget build(BuildContext c) {
     if (prof == null) return const Center(child: CircularProgressIndicator());
     final id = role == 'student' ? row!['student_no'] : role == 'teacher' ? row!['teacher_no'] : null;
     final sec = row?['sections'];
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Form(key: formKey, child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Center(child: AvatarPicker(url: prof!['photo_url'] as String?, onUploaded: _photo)),
-        const SizedBox(height: 8),
-        Center(child: Text('${prof!['full_name']}', style: Theme.of(c).textTheme.titleLarge)),
-        Center(child: Text(role == 'student' ? 'Student' : role == 'teacher' ? 'Teacher' : 'Parent / Guardian')),
-        const SizedBox(height: 12),
-        if (id != null) Card(child: ListTile(
-          leading: const Icon(Icons.badge, size: 32),
-          title: Text(role == 'student' ? 'Student ID' : 'Teacher ID'),
-          subtitle: SelectableText('$id', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: 1)),
-          trailing: IconButton(icon: const Icon(Icons.copy), tooltip: 'Copy', onPressed: () { Clipboard.setData(ClipboardData(text: '$id')); toast('ID copied'); }),
-        )),
-        Card(child: Column(children: [
-          _info(Icons.email, 'Google account', '${prof!['email'] ?? ''}'),
-          if (role == 'student') _info(Icons.class_, 'Grade & section', sec == null ? 'Grade ${row!['grade_level']} · waiting for your adviser to add you' : 'Grade ${sec['grade_level']} · ${sec['name']}'),
-          if (role == 'student') _info(Icons.fingerprint, 'Biometric device ID', '${row!['biometric_id'] ?? 'not assigned'}'),
-        ])),
-        const SizedBox(height: 12),
-        Row(children: [
-          Text('My details', style: Theme.of(c).textTheme.titleMedium), const Spacer(),
-          if (!editing) OutlinedButton.icon(onPressed: () => setState(() => editing = true), icon: const Icon(Icons.edit), label: const Text('Edit'))
-          else ...[
-            TextButton(onPressed: saving ? null : () { setState(() { editing = false; _fill(); }); }, child: const Text('Cancel')),
-            const SizedBox(width: 8),
-            FilledButton(onPressed: saving ? null : _save, child: saving ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Save')),
-          ],
-        ]),
-        const SizedBox(height: 12),
-        for (final f in fields) Padding(padding: const EdgeInsets.only(bottom: 12), child: TextFormField(
-          controller: ctl[f.key], enabled: editing, keyboardType: f.type, maxLines: f.multiline ? 2 : 1,
-          decoration: InputDecoration(labelText: f.label + (f.req ? ' *' : ''), border: const OutlineInputBorder()),
-          validator: (v) => f.req && (v == null || v.trim().isEmpty) ? 'Required' : null,
-        )),
-        if (role == 'student') Wrap(spacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
-          const Text('Sex'),
-          for (final s in const [['M', 'Male'], ['F', 'Female']]) ChoiceChip(label: Text(s[1]), selected: sex == s[0], onSelected: editing ? (_) => setState(() => sex = s[0]) : null),
-        ]),
-        if (role == 'teacher') ...[
-          Text('Grade levels you handle (up to 5)', style: Theme.of(c).textTheme.titleSmall),
-          Wrap(spacing: 6, children: [for (var g = 7; g <= 12; g++) FilterChip(label: Text('Grade $g'), selected: grades.contains(g),
-            onSelected: editing ? (on) => setState(() { if (on && grades.length < 5) { grades.add(g); } else { grades.remove(g); } }) : null)]),
-          const SizedBox(height: 8),
-          const Text('Your subjects are edited in the Subjects tab.', style: TextStyle(fontSize: 12)),
-        ],
-        const SizedBox(height: 24),
-        OutlinedButton.icon(onPressed: () => sb.auth.signOut(), icon: const Icon(Icons.logout), label: const Text('Sign out')),
-      ])),
-    );
+    return ListView(padding: const EdgeInsets.only(bottom: 32), children: [
+      _hero(c, id as String?),
+      Align(alignment: Alignment.topCenter, child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 700), child: Padding(padding: const EdgeInsets.fromLTRB(16, 18, 16, 0),
+        child: Form(key: formKey, child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          SoftCard(padding: const EdgeInsets.symmetric(vertical: 4), child: Column(children: [
+            _info(Icons.email_outlined, 'Google account', '${prof!['email'] ?? ''}'),
+            if (role == 'student') _info(Icons.class_outlined, 'Grade & section', sec == null ? 'Grade ${row!['grade_level']} · waiting for your adviser to add you' : 'Grade ${sec['grade_level']} · ${sec['name']}'),
+            if (role == 'student') _info(Icons.fingerprint, 'Biometric device ID', '${row!['biometric_id'] ?? 'not assigned'}'),
+          ])),
+          const SizedBox(height: 18),
+          SectionTitle('My details', icon: Icons.person_outline, trailing: !editing
+              ? OutlinedButton.icon(onPressed: () => setState(() => editing = true), icon: const Icon(Icons.edit, size: 18), label: const Text('Edit'))
+              : Row(mainAxisSize: MainAxisSize.min, children: [
+                  TextButton(onPressed: saving ? null : () { setState(() { editing = false; _fill(); }); }, child: const Text('Cancel')),
+                  const SizedBox(width: 4),
+                  FilledButton(onPressed: saving ? null : _save, child: saving ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Save')),
+                ])),
+          SoftCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            for (final f in fields) Padding(padding: const EdgeInsets.only(bottom: 12), child: TextFormField(
+              controller: ctl[f.key], enabled: editing, keyboardType: f.type, maxLines: f.multiline ? 2 : 1,
+              decoration: InputDecoration(labelText: f.label + (f.req ? ' *' : ''), border: const OutlineInputBorder()),
+              validator: (v) => f.req && (v == null || v.trim().isEmpty) ? 'Required' : null,
+            )),
+            if (role == 'student') Wrap(spacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
+              const Text('Sex'),
+              for (final s in const [['M', 'Male'], ['F', 'Female']]) ChoiceChip(label: Text(s[1]), selected: sex == s[0], onSelected: editing ? (_) => setState(() => sex = s[0]) : null),
+            ]),
+            if (role == 'teacher') ...[
+              Text('Grade levels you handle (up to 5)', style: Theme.of(c).textTheme.titleSmall),
+              const SizedBox(height: 6),
+              Wrap(spacing: 6, children: [for (var g = 7; g <= 12; g++) FilterChip(label: Text('Grade $g'), selected: grades.contains(g),
+                onSelected: editing ? (on) => setState(() { if (on && grades.length < 5) { grades.add(g); } else { grades.remove(g); } }) : null)]),
+              const SizedBox(height: 8),
+              const Text('Your subjects are edited in the Subjects tab.', style: TextStyle(fontSize: 12)),
+            ],
+          ])),
+          const SizedBox(height: 22),
+          OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48), foregroundColor: Colors.red.shade700, side: BorderSide(color: Colors.red.shade300), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
+            onPressed: () => sb.auth.signOut(), icon: const Icon(Icons.logout), label: const Text('Sign out')),
+        ]))))),
+    ]);
   }
 }

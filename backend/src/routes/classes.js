@@ -1,9 +1,11 @@
 // Teacher class records, subject attendance (+absence policy), homeroom attendance, grades. Ported from the PHP portal.
 const { MAX_RECORD_COLS, recPercent, transmute, standingOf, isWeekday, phToday, validDate } = require('../services/records');
 const { notify } = require('../services/notify');
-const { parentsOf } = require('../services/attendance');
+const { parentsOf, parentsOfMany } = require('../services/attendance');
+const { applyCancellation, announce, resume } = require('../services/noclass');
 const { cleanSchedules, DAY_NAMES } = require('../services/classes');
-const ST = ['P', 'A', 'L', 'E'];
+const ST = ['P', 'A', 'L', 'E', 'N'];
+const REASONS = ['Teacher unavailable', 'Meeting / training', 'Holiday / suspension', 'Bad weather', 'School activity', 'Other'];
 
 module.exports = function mount(app, { sb, wrap, bad, teacherOnly, curYear }) {
   // The teacher must be assigned to this subject in this section (the adviser assigns them).
@@ -138,7 +140,19 @@ module.exports = function mount(app, { sb, wrap, bad, teacherOnly, curYear }) {
     const seen = new Set(); for (const d of dates) { checkDate(d.date); if (seen.has(d.date)) throw bad(`${d.date} appears twice. Keep one column per date.`); seen.add(d.date); }
     for (const d of dates) {
       const rows = d.entries.filter(e => ok.has(e.student_id) && ST.includes(e.status)).map(e => ({ student_id: e.student_id, section_id, subject_id, school_year_id: c.sections.school_year_id, att_date: d.date, status: e.status, remarks: (e.remarks || '').slice(0, 120) || null, marked_by: q.user.id, updated_at: new Date().toISOString() }));
-      if (rows.length) { const { error } = await sb.from('class_attendance').upsert(rows, { onConflict: 'student_id,subject_id,att_date' }); if (error) throw error; n += rows.length; }
+      if (rows.length) {
+        const { data: old } = await sb.from('class_attendance').select('student_id,status').match({ subject_id, att_date: d.date }).in('student_id', rows.map(x => x.student_id));
+        const was = new Map((old || []).map(o => [o.student_id, o.status]));
+        const { error } = await sb.from('class_attendance').upsert(rows, { onConflict: 'student_id,subject_id,att_date' }); if (error) throw error; n += rows.length;
+        const recent = d.date >= new Date(Date.now() + 8 * 36e5 - 2 * 864e5).toISOString().slice(0, 10);       // families hear only about recent days that changed
+        const changed = rows.filter(x => ['A', 'L', 'E'].includes(x.status) && was.get(x.student_id) !== x.status);
+        if (recent && changed.length) {
+          const ppl = await parentsOfMany(sb, changed.map(x => x.student_id)), byId = new Map((await classStudents(section_id)).map(s => [s.id, s]));
+          for (const x of changed) { const s = byId.get(x.student_id); if (!s) continue;
+            await notify(sb, [s.id, ...(ppl.get(s.id) || [])], { kind: 'attendance', title: `${s.first_name} is ${x.status === 'A' ? 'absent' : x.status === 'L' ? 'late' : 'excused'} in ${c.subjects.name}`,
+              body: `Marked by the subject teacher for ${d.date}.`, data: { student_id: s.id, date: d.date, status: x.status, subject_id } }); }
+        }
+      }
     }
     r.json({ saved: n, dropped: await applyStanding(section_id, subject_id, c) });
   }));
@@ -162,6 +176,33 @@ module.exports = function mount(app, { sb, wrap, bad, teacherOnly, curYear }) {
         const s = ok.get(e.student_id); await notify(sb, [s.id, ...await parentsOf(sb, s.id)], { kind: 'attendance',
           title: `${s.first_name} is ${e.status === 'A' ? 'absent' : e.status === 'L' ? 'late' : 'excused'}`, body: `Marked by the adviser for ${date}.`, data: { student_id: s.id, date, status: e.status } }); }
     r.json({ saved: n });
+  }));
+
+  // ---- No-class alerts: pick classes (any grade level / section), notify students + parents, mark everybody "No class" (not absent)
+  app.post('/api/no-class', teacherOnly, wrap(async (q, r) => {
+    const b = q.body || {}, today = phToday(), date = b.date || today;
+    if (!validDate(date) || !isWeekday(date)) throw bad('Pick a valid weekday (Monday to Friday).');
+    if (date < today) throw bad('Pick today or a later date.');
+    if (date > new Date(Date.now() + 8 * 36e5 + 60 * 864e5).toISOString().slice(0, 10)) throw bad('That date is too far ahead.');
+    const seen = new Set(), targets = (Array.isArray(b.targets) ? b.targets : []).filter(t => t?.section_id && t?.subject_id && !seen.has(t.section_id + t.subject_id) && seen.add(t.section_id + t.subject_id));
+    if (!targets.length) throw bad('Choose at least one class.'); if (targets.length > 60) throw bad('Too many classes at once.');
+    const reason = REASONS.includes(b.reason) ? b.reason : null, message = String(b.message || '').trim().slice(0, 140) || null;
+    const out = { classes: 0, students: 0, notified: 0, skipped: 0 };
+    for (const t of targets) {
+      const c = await myClass(q.user.id, t.section_id, t.subject_id);
+      const { data: ex } = await sb.from('class_cancellations').select('id').match({ section_id: t.section_id, subject_id: t.subject_id, cancel_date: date }).maybeSingle();
+      if (ex) { out.skipped++; continue; }                                       // already announced: do not spam
+      const row = { section_id: t.section_id, subject_id: t.subject_id, cancel_date: date, reason, message, label: `Grade ${c.sections.grade_level} · ${c.sections.name}`, subject_name: c.subjects.name, created_by: q.user.id };
+      const { data: ins, error } = await sb.from('class_cancellations').insert(row).select().single(); if (error) throw error;
+      out.students += date <= today ? await applyCancellation(sb, ins) : (await classStudents(t.section_id)).length;
+      out.notified += await announce(sb, ins); out.classes++;
+    }
+    r.json(out);
+  }));
+  app.delete('/api/no-class/:id', teacherOnly, wrap(async (q, r) => {          // "class is on after all"
+    const { data: c } = await sb.from('class_cancellations').select('*').eq('id', q.params.id).maybeSingle();
+    if (!c) throw bad('Notice not found', 404); await myClass(q.user.id, c.section_id, c.subject_id);
+    r.json({ notified: await resume(sb, c) });
   }));
 
   // ---- Class record: columns (quiz, seatwork...) and scores

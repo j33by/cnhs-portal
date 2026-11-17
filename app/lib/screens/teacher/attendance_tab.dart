@@ -17,7 +17,7 @@ class _AttState extends State<AttendanceTab> {
   DateTime month = DateTime(DateTime.now().year, DateTime.now().month);
   Rows studs = [];
   List<String> dates = [];
-  final st = <String, String>{}, rm = <String, String>{};      // key: "date|studentId"
+  final st = <String, String>{}, rm = <String, String>{}, gate = <String, String>{};      // key: "date|studentId" (gate = the school-day fingerprint record)
   Map<String, int> abs = {};
   int free = 10; bool apply = false, loading = true;
 
@@ -34,8 +34,10 @@ class _AttState extends State<AttendanceTab> {
         sb.from('class_attendance').select('student_id,att_date,status,remarks').match(base).gte('att_date', from).lte('att_date', to).order('att_date'),
         sb.from('class_attendance').select('student_id').match({...base, 'status': 'A'}),
         sb.from('class_policy').select().match(base),
+        sb.from('daily_attendance').select('student_id,att_date,status').eq('section_id', widget.sectionId).gte('att_date', from).lte('att_date', to),
       ]);
-      studs = r[0]; st.clear(); rm.clear();
+      studs = r[0]; st.clear(); rm.clear(); gate.clear();
+      for (final g in r[4]) { gate['${g['att_date']}|${g['student_id']}'] = g['status'] as String; }
       final ds = <String>{};
       for (final a in r[1]) { final d = a['att_date'] as String; ds.add(d); st['$d|${a['student_id']}'] = a['status'] as String; if (a['remarks'] != null) { rm['$d|${a['student_id']}'] = a['remarks'] as String; } }
       dates = ds.toList()..sort();
@@ -47,7 +49,7 @@ class _AttState extends State<AttendanceTab> {
     if (mounted) setState(() => loading = false);
   }
 
-  static const _cycle = {'': 'P', 'P': 'A', 'A': 'L', 'L': 'E', 'E': 'P'};
+  static const _cycle = {'': 'P', 'P': 'A', 'A': 'L', 'L': 'E', 'E': 'P', 'N': 'P'};
 
   Future<void> _addDate() async {
     final today = DateTime.now();
@@ -100,8 +102,11 @@ class _AttState extends State<AttendanceTab> {
     final k = '$d|${s['id']}'; final v = st[k] ?? ''; final col = v.isEmpty ? Colors.grey : kStatus[v]![1] as Color;
     return InkWell(
       onTap: () => setState(() => st[k] = _cycle[v]!), onLongPress: () => _remark(d, s),
-      child: Container(width: 38, height: 34, alignment: Alignment.center, decoration: BoxDecoration(color: col.withValues(alpha: .15), border: Border.all(color: col, width: (rm[k] ?? '').isNotEmpty ? 2.5 : 1), borderRadius: BorderRadius.circular(6)),
-          child: Text(v.isEmpty ? '·' : v, style: TextStyle(color: col, fontWeight: FontWeight.bold))),
+      child: Stack(clipBehavior: Clip.none, children: [
+        Container(width: 38, height: 34, alignment: Alignment.center, decoration: BoxDecoration(color: col.withValues(alpha: .15), border: Border.all(color: col, width: (rm[k] ?? '').isNotEmpty ? 2.5 : 1), borderRadius: BorderRadius.circular(6)),
+            child: Text(v.isEmpty ? '·' : v, style: TextStyle(color: col, fontWeight: FontWeight.bold))),
+        if (gate[k] != null) Positioned(top: -3, right: -3, child: Tooltip(message: 'School gate: ${stLabel(gate[k])}', child: Container(width: 10, height: 10, decoration: BoxDecoration(color: stColor(gate[k]), shape: BoxShape.circle, border: Border.all(color: Theme.of(context).colorScheme.surface, width: 1.5))))),
+      ]),
     );
   }
 
@@ -113,6 +118,7 @@ class _AttState extends State<AttendanceTab> {
             Text(DateFormat('EEE').format(DateTime.parse(d)), style: const TextStyle(fontSize: 10)), Text(DateFormat('MMM d').format(DateTime.parse(d)), style: const TextStyle(fontWeight: FontWeight.bold)),
             Row(mainAxisSize: MainAxisSize.min, children: [
               InkWell(onTap: () => setState(() { for (final s in studs) { st['$d|${s['id']}'] = 'P'; } }), child: const Padding(padding: EdgeInsets.all(3), child: Text('All P', style: TextStyle(fontSize: 11, color: Colors.green)))),
+              InkWell(onTap: () => setState(() { for (final s in studs) { final g = gate['$d|${s['id']}']; if (g != null && (st['$d|${s['id']}'] ?? '').isEmpty) { st['$d|${s['id']}'] = g; } } }), child: const Padding(padding: EdgeInsets.all(3), child: Text('Gate', style: TextStyle(fontSize: 11, color: Colors.blue)))),
               InkWell(onTap: () => _removeDate(d), child: const Padding(padding: EdgeInsets.all(3), child: Icon(Icons.close, size: 14, color: Colors.red)))])])),
           const DataColumn(label: Text('Year abs.')),
           const DataColumn(label: Text('Standing')),
@@ -139,7 +145,7 @@ class _AttState extends State<AttendanceTab> {
         IconButton(icon: const Icon(Icons.add_box), tooltip: 'Add date', onPressed: _addDate),
         FilledButton(onPressed: dates.isEmpty ? null : _save, child: const Text('Save')),
       ])),
-      Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: Align(alignment: Alignment.centerLeft, child: Text('Allowed absences: $free   ·   On warning: $warn   ·   Over limit: $over   ·   Tap = P/A/L/E, long-press = remark', style: const TextStyle(fontSize: 11)))),
+      Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: Align(alignment: Alignment.centerLeft, child: Text('Allowed absences: $free   ·   On warning: $warn   ·   Over limit: $over   ·   Tap = P/A/L/E, long-press = remark. Dot = school-gate record (an auto-absent student can still be marked present here). N = no class', style: const TextStyle(fontSize: 11)))),
       Expanded(child: loading ? const Center(child: CircularProgressIndicator())
           : studs.isEmpty ? const Center(child: Text('No students in this section yet'))
           : dates.isEmpty ? const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('No attendance this month. Tap the + button to add a date column.', textAlign: TextAlign.center)))
