@@ -8,6 +8,7 @@ import '../../widgets/colors.dart';
 import 'add_class.dart';
 import 'advisory.dart';
 import 'attendance_tab.dart';
+import 'my_subjects.dart';
 import 'class_common.dart';
 import 'class_schedule_tab.dart';
 import 'class_students_tab.dart';
@@ -130,6 +131,11 @@ class _MyClassesState extends State<MyClasses> {
     );
   }
 
+  void _openSubjects() => Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(appBar: AppBar(title: const Text('My subjects')), body: const MySubjects())));
+  Widget _subjectsButton() => FilledButton.tonalIcon(
+        onPressed: _openSubjects, icon: const Icon(Icons.library_books_outlined, size: 18), label: const Text('My subjects'),
+        style: FilledButton.styleFrom(visualDensity: VisualDensity.compact, padding: const EdgeInsets.symmetric(horizontal: 14)));
+
   Widget _heading(String t, IconData i) => Padding(padding: const EdgeInsets.fromLTRB(18, 14, 12, 2), child: Row(children: [Icon(i, size: 18), const SizedBox(width: 6), Text(t, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold))]));
 
   Widget _list(bool wide) {
@@ -140,13 +146,13 @@ class _MyClassesState extends State<MyClasses> {
         const Icon(Icons.menu_book, size: 64), const SizedBox(height: 12),
         Text('No classes yet', style: Theme.of(context).textTheme.titleMedium), const SizedBox(height: 8),
         const Text('Add a class to choose the grade level, section, subject and schedule you teach. If you are the adviser of a section, tick "I\'m the adviser" and it appears here in amber.', textAlign: TextAlign.center),
-        const SizedBox(height: 16), FilledButton.icon(onPressed: () => _add(wide), icon: const Icon(Icons.add), label: const Text('Add class')),
+        const SizedBox(height: 16), _subjectsButton(), const SizedBox(height: 10), FilledButton.icon(onPressed: () => _add(wide), icon: const Icon(Icons.add), label: const Text('Add class')),
       ])));
     }
     return RefreshIndicator(onRefresh: TeacherData.i.reload, child: ListView(padding: const EdgeInsets.only(bottom: 90), children: [
       if (wide) Padding(padding: const EdgeInsets.fromLTRB(16, 12, 12, 0), child: Row(children: [
         Text('Classes', style: Theme.of(context).textTheme.titleMedium), const Spacer(),
-        FilledButton.icon(onPressed: () => _add(wide), icon: const Icon(Icons.add), label: const Text('Add class')),
+        _subjectsButton(), const SizedBox(width: 8), FilledButton.icon(onPressed: () => _add(wide), icon: const Icon(Icons.add), label: const Text('Add class')),
       ])),
       if (d.advisories.isNotEmpty) ...[_heading('My advisory', Icons.star_rounded), for (final a in d.advisories) _advisoryCard(a, wide)],
       if (d.classes.isNotEmpty) ...[_heading('Subject classes', Icons.menu_book), for (final x in d.classes) _classCard(x, wide)],
@@ -161,7 +167,7 @@ class _MyClassesState extends State<MyClasses> {
           if (selected != null && ![...d.classes, ...d.advisories].any((o) => classKey(o) == classKey(selected!))) { selected = null; }
           final empty = d.classes.isEmpty && d.advisories.isEmpty;
           return Scaffold(
-            floatingActionButton: wide || empty ? null : FloatingActionButton.extended(onPressed: () => _add(wide), icon: const Icon(Icons.add), label: const Text('Add class')),
+            floatingActionButton: wide || empty ? null : Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [_subjectsButton(), const SizedBox(height: 10), FloatingActionButton.extended(onPressed: () => _add(wide), icon: const Icon(Icons.add), label: const Text('Add class'))]),
             body: wide
                 ? Row(children: [
                     SizedBox(width: 400, child: _list(wide)), const VerticalDivider(width: 1),

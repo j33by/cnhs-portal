@@ -27,6 +27,7 @@ String get myUid => myUidOrNull ?? '';
 /// Last data seen on this phone, per signed-in user (JSON in SharedPreferences). Wiped on sign out.
 class LocalCache {
   static SharedPreferences? _p;
+  static SharedPreferences? get prefs => _p;
   static Future<void> init() async { _p = await SharedPreferences.getInstance(); Identity.load(_p!); }
   static String _k(String key) => 'c:$myUid:$key';
   static void write(String key, Object? v) {

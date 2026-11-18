@@ -15,6 +15,7 @@ import '../core/offline.dart';
     case 'no_class': return (icon: Icons.event_busy, color: stColor('N'));
     case 'grades': return (icon: Icons.school, color: Colors.indigo);
     case 'bind': return (icon: Icons.link, color: Colors.teal);
+    case 'feed': return (icon: Icons.campaign, color: Colors.teal);
     case 'class': return (icon: Icons.alarm, color: Colors.orange);
     case 'section': return (icon: Icons.groups, color: Colors.blue);
     default: return (icon: Icons.notifications, color: Colors.blueGrey);

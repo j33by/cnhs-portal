@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import '../../widgets/ui.dart';
 import 'package:flutter/services.dart';
 import '../../core/api.dart';
 import '../../core/messenger.dart';
@@ -68,18 +69,11 @@ class _HomeTabState extends State<HomeTab> {
 
   // ---------------------------------------------------------------- header
   Widget _header(BuildContext c) {
-    final cs = Theme.of(c).colorScheme;
     final name = '${widget.profile['full_name']}';
     final id = me?['teacher_no'];
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(16, 24, 16, 28),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [cs.primary, Color.lerp(cs.primary, Colors.black, .35)!]),
-        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(32)),
-      ),
+    return SchoolBackdrop(
       child: Column(children: [
-        Text('${_greeting()}!', style: TextStyle(color: cs.onPrimary.withValues(alpha: .85))),
+        Text('${_greeting()}!', style: TextStyle(color: Colors.white.withValues(alpha: .85))),
         const SizedBox(height: 12),
         Container(
           padding: const EdgeInsets.all(3), decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
@@ -87,7 +81,7 @@ class _HomeTabState extends State<HomeTab> {
               child: (photo ?? widget.profile['photo_url']) == null ? Text(name.isEmpty ? '?' : name[0].toUpperCase(), style: const TextStyle(fontSize: 38)) : null),
         ),
         const SizedBox(height: 12),
-        Text(name, textAlign: TextAlign.center, style: TextStyle(color: cs.onPrimary, fontSize: 22, fontWeight: FontWeight.bold)),
+        Text(name, textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         InkWell(
           borderRadius: BorderRadius.circular(20),
@@ -96,9 +90,9 @@ class _HomeTabState extends State<HomeTab> {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
             decoration: BoxDecoration(color: Colors.white.withValues(alpha: .18), borderRadius: BorderRadius.circular(20)),
             child: Row(mainAxisSize: MainAxisSize.min, children: [
-              Icon(Icons.badge, size: 16, color: cs.onPrimary), const SizedBox(width: 6),
-              Text('Teacher ID  ${id ?? '…'}', style: TextStyle(color: cs.onPrimary, fontWeight: FontWeight.w600, letterSpacing: .5)),
-              const SizedBox(width: 6), Icon(Icons.copy, size: 14, color: cs.onPrimary.withValues(alpha: .8)),
+              Icon(Icons.badge, size: 16, color: Colors.white), const SizedBox(width: 6),
+              Text('Teacher ID  ${id ?? '…'}', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, letterSpacing: .5)),
+              const SizedBox(width: 6), Icon(Icons.copy, size: 14, color: Colors.white.withValues(alpha: .8)),
             ]),
           ),
         ),

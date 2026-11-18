@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../../core/api.dart';
 import '../../core/calc.dart';
 import '../../core/messenger.dart';
+import '../../core/offline.dart';
+import '../../core/outbox.dart';
 import 'class_common.dart';
 
 /// Class record: columns (quiz, seatwork, project...) x students, weighted percent, copy to term grade.
@@ -15,33 +17,65 @@ class _RecordTabState extends State<RecordTab> {
   late int term = widget.initialTerm;
   Rows cols = [], studs = [];
   Map<String, Map<String, double>> scores = {};
+  final sver = <String, String>{};      // server version of each saved score ("columnId|studentId")
+  int _tick = 0, _epoch = 0;
+  String get _key => 'rs|${widget.sectionId}|${widget.subjectId}|$term';
   Map<String, int> absences = {};
   int free = 10;
   final ctl = <String, TextEditingController>{};
   bool loading = true, tr = true;
 
-  @override void initState() { super.initState(); _load(); }
-  @override void dispose() { for (final c in ctl.values) { c.dispose(); } super.dispose(); }
+  @override
+  void initState() {
+    super.initState();
+    _tick = Outbox.i.syncedTick; _epoch = Net.i.epoch;
+    Outbox.i.addListener(_onSync); Net.i.addListener(_onSync);
+    _load();
+  }
+  @override
+  void dispose() { Outbox.i.removeListener(_onSync); Net.i.removeListener(_onSync); for (final c in ctl.values) { c.dispose(); } super.dispose(); }
+
+  bool get _dirty {
+    for (final c in cols) { for (final s in studs) {
+      final t = ctl['${c['id']}|${s['id']}']?.text.trim() ?? '', old = scores[c['id']]?[s['id']];
+      if (t.isEmpty ? old != null : (double.tryParse(t) == null || old == null || (old - double.parse(t)).abs() > 0.001)) { return true; }
+    } }
+    return false;
+  }
+  void _onSync() {
+    final changed = Outbox.i.syncedTick != _tick || Net.i.epoch != _epoch;
+    _tick = Outbox.i.syncedTick; _epoch = Net.i.epoch;
+    if (changed && mounted && !loading && !_dirty) { _load(); }
+  }
 
   Future<void> _load() async {
     setState(() => loading = true);
     try {
       final yid = await currentYearId();
       final base = <String, Object>{'section_id': widget.sectionId, 'subject_id': widget.subjectId, 'school_year_id': yid};
+      final k0 = '${widget.sectionId}|${widget.subjectId}';
       final r = await Future.wait<Rows>([
-        sb.from('record_columns').select().match({...base, 'term': term, 'is_deleted': false}).order('col_date').order('created_at'),
+        cachedRows('rc|$k0|$term', () => sb.from('record_columns').select().match({...base, 'term': term, 'is_deleted': false}).order('col_date').order('created_at')),
         loadStudents(widget.sectionId),
-        sb.from('class_attendance').select('student_id').match({...base, 'status': 'A'}),
-        sb.from('class_policy').select().match(base),
+        cachedRows('caabs|$k0', () => sb.from('class_attendance').select('student_id').match({...base, 'status': 'A'})),
+        cachedRows('cpol|$k0', () => sb.from('class_policy').select().match(base)),
       ]);
       cols = r[0]; studs = r[1];
       absences = {};
       for (final a in r[2]) { final k = a['student_id'] as String; absences[k] = (absences[k] ?? 0) + 1; }
       free = r[3].isEmpty ? 10 : r[3].first['free_absences'] as int;
-      scores = {};
+      scores = {}; sver.clear();
       if (cols.isNotEmpty) {
-        final sc = await sb.from('record_scores').select().inFilter('column_id', cols.map((c) => c['id']).toList());
-        for (final s in sc) { (scores[s['column_id'] as String] ??= {})[s['student_id'] as String] = (s['score'] as num).toDouble(); }
+        final ids = cols.map((c) => c['id']).toList();
+        final sc = await cachedRows('rs|$k0|$term', () => sb.from('record_scores').select().inFilter('column_id', ids));
+        for (final s in sc) { (scores[s['column_id'] as String] ??= {})[s['student_id'] as String] = (s['score'] as num).toDouble(); if (s['updated_at'] != null) { sver['${s['column_id']}|${s['student_id']}'] = s['updated_at'] as String; } }
+      }
+      for (final it in Outbox.i.pendingFor(_key)) {          // scores saved on this phone and not sent yet
+        for (final e in (it.body['scores'] as List).cast<Map<String, dynamic>>()) {
+          final col = e['column_id'] as String, stu = e['student_id'] as String;
+          if (!cols.any((c) => c['id'] == col)) { continue; }
+          if (e['score'] == null) { scores[col]?.remove(stu); } else { (scores[col] ??= {})[stu] = (e['score'] as num).toDouble(); }
+        }
       }
       for (final c in ctl.values) { c.dispose(); }
       ctl.clear();
@@ -61,16 +95,17 @@ class _RecordTabState extends State<RecordTab> {
     for (final c in cols) {
       for (final s in studs) {
         final t = ctl['${c['id']}|${s['id']}']!.text.trim(); final old = scores[c['id']]?[s['id']];
-        if (t.isEmpty) { if (old != null) { changes.add({'column_id': c['id'], 'student_id': s['id'], 'score': null}); } continue; }
+        if (t.isEmpty) { if (old != null) { changes.add({'column_id': c['id'], 'student_id': s['id'], 'score': null, if (sver['${c['id']}|${s['id']}'] != null) 'base': sver['${c['id']}|${s['id']}']}); } continue; }
         final v = double.tryParse(t);
         if (v == null || v < 0 || v > (c['max_score'] as num)) { toast('Scores must be between 0 and ${fmtNum(c['max_score'] as num)} (${c['title']}). Nothing was saved.'); return; }
-        if (old == null || (old - v).abs() > 0.001) { changes.add({'column_id': c['id'], 'student_id': s['id'], 'score': v}); }
+        if (old == null || (old - v).abs() > 0.001) { changes.add({'column_id': c['id'], 'student_id': s['id'], 'score': v, if (sver['${c['id']}|${s['id']}'] != null) 'base': sver['${c['id']}|${s['id']}']}); }
       }
     }
     if (changes.isEmpty) { toast('No changes to save'); return; }
     try {
-      await Api.put('/api/record/scores', {'section_id': widget.sectionId, 'subject_id': widget.subjectId, 'term': term, 'scores': changes});
-      toast('${changes.length} score change(s) saved'); await _load();
+      final r = await Outbox.i.submit(kind: 'record_scores', key: _key, label: 'Scores · ${classLabelOf(widget.sectionId, widget.subjectId)} · Term $term', method: 'PUT', path: '/api/record/scores',
+          body: {'section_id': widget.sectionId, 'subject_id': widget.subjectId, 'term': term, 'scores': changes});
+      toast(r == null ? '${changes.length} score change(s) saved on this phone. They will sync when the internet is back.' : '${changes.length} score change(s) saved'); await _load();
     } catch (e) { toastError(e); }
   }
 

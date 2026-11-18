@@ -4,6 +4,7 @@ import '../../core/api.dart';
 import '../../core/streams.dart';
 import '../../widgets/family_home.dart';
 import '../../widgets/family_shell.dart';
+import '../../widgets/feed_view.dart';
 import '../../widgets/shared.dart';
 import '../profile_screen.dart';
 import '../../core/offline.dart';
@@ -62,6 +63,7 @@ class _StudentHomeState extends State<StudentHome> {
       builder: (c, u) => FamilyShell(selected: nav, tabs: [
         FamilyTab(id: 'home', label: 'Home', icon: Icons.home_outlined, selectedIcon: Icons.home,
             build: () => FamilyHome(studentId: id, name: name, studentNo: '${s['student_no']}', photo: widget.profile['photo_url'] as String?, sectionId: sectionId, classLabel: sectionLabel, onGo: (t) => nav.value = t, loadPhoto: _photo)),
+        FamilyTab(id: 'feed', label: 'Feed', icon: Icons.dynamic_feed_outlined, selectedIcon: Icons.dynamic_feed, build: () => const FeedView()),
         FamilyTab(id: 'attendance', label: 'Attendance', icon: Icons.how_to_reg_outlined, selectedIcon: Icons.how_to_reg,
             build: () => AttendanceView(id, sectionId: sectionId, studentName: name, showSubjects: true)),
         FamilyTab(id: 'grades', label: 'Grades', icon: Icons.school_outlined, selectedIcon: Icons.school,

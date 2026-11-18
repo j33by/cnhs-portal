@@ -17,6 +17,29 @@ module.exports = function mount(app, { sb, wrap, bad, teacherOnly, curYear }) {
     .order('sex', { ascending: false }).order('last_name').order('first_name')).data || [];
   const lockedTerm = async (section_id, subject_id, term) => ((await sb.from('grades').select('id', { count: 'exact', head: true }).match({ section_id, subject_id, term, released: true })).count || 0) > 0;
   const checkDate = d => { if (!validDate(d) || d > phToday()) throw bad('Choose a valid date that is not in the future.'); if (!isWeekday(d)) throw bad('Classes are held Monday to Friday. Pick a weekday.'); };
+  // ---- Offline queue support -------------------------------------------------------------------------------------
+  // A change saved on a phone without internet is sent later with an operation id (X-Op-Id). The first request claims the id,
+  // a retry of the same id returns the stored result instead of applying (and notifying) again. A claim stuck in "processing"
+  // for 2 minutes (server restarted midway) can be taken over.
+  const idem = (kind, fn) => wrap(async (q, r) => {
+    const id = q.get('X-Op-Id'); if (!id) return fn(q, r);
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) throw bad('Bad operation id');
+    const { error } = await sb.from('sync_ops').insert({ op_id: id, user_id: q.user.id, kind, status: 'processing' });
+    if (error) {
+      const { data: o } = await sb.from('sync_ops').select('*').eq('op_id', id).maybeSingle();
+      if (o && o.user_id !== q.user.id) throw bad('Bad operation id', 403);
+      if (o?.status === 'done') return r.json({ ...(o.result || {}), replayed: true });
+      if (o && Date.now() - Date.parse(o.created_at) > 120000) await sb.from('sync_ops').update({ created_at: new Date().toISOString() }).eq('op_id', id);
+      else throw bad('This change is already being processed. It will be retried.', 409);
+    }
+    let out = {};
+    try { await fn(q, { json: x => { out = x; } }); }
+    catch (e) { await sb.from('sync_ops').delete().eq('op_id', id); throw e; }        // not applied: let the retry run again
+    await sb.from('sync_ops').update({ status: 'done', result: out }).eq('op_id', id);
+    r.json(out);
+  });
+  const ts = v => (v == null ? null : Date.parse(v));                                    // versions are compared as instants (ms)
+
 
 
   // ---- Add / remove a class (a teacher teaching a subject in ANY section, advisory or not)
@@ -133,28 +156,45 @@ module.exports = function mount(app, { sb, wrap, bad, teacherOnly, curYear }) {
       const { data } = await sb.from('students').update({ status: 'dropped' }).eq('id', sid).eq('status', 'enrolled').select('id'); dropped += data?.length || 0; }
     return dropped;
   }
-  app.post('/api/class-attendance', teacherOnly, wrap(async (q, r) => {
-    const { section_id, subject_id, dates } = q.body;                  // dates: [{date, entries:[{student_id,status,remarks}]}]
+  app.post('/api/class-attendance', teacherOnly, idem('class_attendance', async (q, r) => {
+    const { section_id, subject_id, dates } = q.body, queued = q.body.queued === true;   // dates: [{date, entries:[{student_id,status,remarks,base}]}]
     const c = await myClass(q.user.id, section_id, subject_id); const ok = new Set((await classStudents(section_id)).map(s => s.id)); let n = 0;
     if (!dates?.length) throw bad('Nothing to save. Add a date column first.');
     const seen = new Set(); for (const d of dates) { checkDate(d.date); if (seen.has(d.date)) throw bad(`${d.date} appears twice. Keep one column per date.`); seen.add(d.date); }
+    const skipped = [], versions = [], stamp = new Date().toISOString();
     for (const d of dates) {
-      const rows = d.entries.filter(e => ok.has(e.student_id) && ST.includes(e.status)).map(e => ({ student_id: e.student_id, section_id, subject_id, school_year_id: c.sections.school_year_id, att_date: d.date, status: e.status, remarks: (e.remarks || '').slice(0, 120) || null, marked_by: q.user.id, updated_at: new Date().toISOString() }));
-      if (rows.length) {
-        const { data: old } = await sb.from('class_attendance').select('student_id,status').match({ subject_id, att_date: d.date }).in('student_id', rows.map(x => x.student_id));
-        const was = new Map((old || []).map(o => [o.student_id, o.status]));
-        const { error } = await sb.from('class_attendance').upsert(rows, { onConflict: 'student_id,subject_id,att_date' }); if (error) throw error; n += rows.length;
-        const recent = d.date >= new Date(Date.now() + 8 * 36e5 - 2 * 864e5).toISOString().slice(0, 10);       // families hear only about recent days that changed
-        const changed = rows.filter(x => ['A', 'L', 'E'].includes(x.status) && was.get(x.student_id) !== x.status);
-        if (recent && changed.length) {
-          const ppl = await parentsOfMany(sb, changed.map(x => x.student_id)), byId = new Map((await classStudents(section_id)).map(s => [s.id, s]));
-          for (const x of changed) { const s = byId.get(x.student_id); if (!s) continue;
-            await notify(sb, [s.id, ...(ppl.get(s.id) || [])], { kind: 'attendance', title: `${s.first_name} is ${x.status === 'A' ? 'absent' : x.status === 'L' ? 'late' : 'excused'} in ${c.subjects.name}`,
-              body: `Marked by the subject teacher for ${d.date}.`, data: { student_id: s.id, date: d.date, status: x.status, subject_id } }); }
-        }
+      const base = new Map(d.entries.map(e => [e.student_id, e.base || null]));
+      let rows = [];
+      for (const e of d.entries) {
+        if (!ok.has(e.student_id)) { if (queued) skipped.push({ student_id: e.student_id, date: d.date, reason: 'student_left' }); continue; }
+        if (!ST.includes(e.status)) continue;
+        rows.push({ student_id: e.student_id, section_id, subject_id, school_year_id: c.sections.school_year_id, att_date: d.date, status: e.status, remarks: (e.remarks || '').slice(0, 120) || null, marked_by: q.user.id, updated_at: stamp });
+      }
+      if (!rows.length) continue;
+      const { data: old } = await sb.from('class_attendance').select('student_id,status,updated_at').match({ subject_id, att_date: d.date }).in('student_id', rows.map(x => x.student_id));
+      const was = new Map((old || []).map(o => [o.student_id, o]));
+      if (queued) {                                       // an offline edit never overwrites newer work and never brings back what was deleted
+        rows = rows.filter(x => {
+          const cur = was.get(x.student_id), b0 = base.get(x.student_id);
+          if (cur && cur.status === x.status) { versions.push({ student_id: x.student_id, date: d.date, updated_at: cur.updated_at }); return false; }   // already the same: nothing to do
+          if (cur && (b0 == null || ts(cur.updated_at) !== ts(b0))) { skipped.push({ student_id: x.student_id, date: d.date, reason: 'changed' }); return false; }   // someone changed it after you looked
+          if (!cur && b0 != null) { skipped.push({ student_id: x.student_id, date: d.date, reason: 'deleted' }); return false; }                                  // it was deleted after you looked
+          return true;
+        });
+        if (!rows.length) continue;
+      }
+      const { error } = await sb.from('class_attendance').upsert(rows, { onConflict: 'student_id,subject_id,att_date' }); if (error) throw error; n += rows.length;
+      for (const x of rows) versions.push({ student_id: x.student_id, date: d.date, updated_at: stamp });
+      const recent = d.date >= new Date(Date.now() + 8 * 36e5 - 2 * 864e5).toISOString().slice(0, 10);       // families hear only about recent days that changed
+      const changed = rows.filter(x => ['A', 'L', 'E'].includes(x.status) && was.get(x.student_id)?.status !== x.status);
+      if (recent && changed.length) {
+        const ppl = await parentsOfMany(sb, changed.map(x => x.student_id)), byId = new Map((await classStudents(section_id)).map(s => [s.id, s]));
+        for (const x of changed) { const s = byId.get(x.student_id); if (!s) continue;
+          await notify(sb, [s.id, ...(ppl.get(s.id) || [])], { kind: 'attendance', title: `${s.first_name} is ${x.status === 'A' ? 'absent' : x.status === 'L' ? 'late' : 'excused'} in ${c.subjects.name}`,
+            body: `Marked by the subject teacher for ${d.date}.`, data: { student_id: s.id, date: d.date, status: x.status, subject_id } }); }
       }
     }
-    r.json({ saved: n, dropped: await applyStanding(section_id, subject_id, c) });
+    r.json({ saved: n, skipped, versions, dropped: await applyStanding(section_id, subject_id, c) });
   }));
   app.delete('/api/class-attendance', teacherOnly, wrap(async (q, r) => {
     const { section_id, subject_id, date } = q.query; await myClass(q.user.id, section_id, subject_id);
@@ -227,17 +267,40 @@ module.exports = function mount(app, { sb, wrap, bad, teacherOnly, curYear }) {
   }));
   app.delete('/api/record/columns/:id', teacherOnly, wrap(async (q, r) => { const col = await myColumn(q); await sb.from('record_columns').update({ is_deleted: true }).eq('id', col.id); r.json({ ok: true }); }));
 
-  app.put('/api/record/scores', teacherOnly, wrap(async (q, r) => {
-    const { section_id, subject_id, term, scores } = q.body;           // scores: [{column_id, student_id, score|null}]
+  app.put('/api/record/scores', teacherOnly, idem('record_scores', async (q, r) => {
+    const { section_id, subject_id, term, scores } = q.body, queued = q.body.queued === true;   // scores: [{column_id, student_id, score|null, base}]
     const c = await myClass(q.user.id, section_id, subject_id);
     const { data: cols } = await sb.from('record_columns').select('id,max_score').match({ section_id, subject_id, term, school_year_id: c.sections.school_year_id, is_deleted: false });
     const max = new Map(cols.map(x => [x.id, +x.max_score])), studs = new Set((await classStudents(section_id)).map(s => s.id));
-    const bads = scores.filter(s => !max.has(s.column_id) || !studs.has(s.student_id) || (s.score != null && !(s.score >= 0 && s.score <= max.get(s.column_id))));
-    if (bads.length) throw bad('Scores must be between 0 and the highest possible score. Nothing was saved.');
-    const sets = scores.filter(s => s.score != null).map(s => ({ column_id: s.column_id, student_id: s.student_id, score: Math.round(s.score * 100) / 100 }));
-    if (sets.length) { const { error } = await sb.from('record_scores').upsert(sets); if (error) throw error; }
-    for (const s of scores.filter(s => s.score == null)) await sb.from('record_scores').delete().match({ column_id: s.column_id, student_id: s.student_id });
-    r.json({ changes: scores.length });
+    const skipped = [], versions = [], stamp = new Date().toISOString();
+    let list = scores;
+    if (!queued) {                                        // online: all or nothing, as before
+      const bads = scores.filter(s => !max.has(s.column_id) || !studs.has(s.student_id) || (s.score != null && !(s.score >= 0 && s.score <= max.get(s.column_id))));
+      if (bads.length) throw bad('Scores must be between 0 and the highest possible score. Nothing was saved.');
+    } else {                                              // from the offline queue: apply what is still valid, report the rest
+      list = [];
+      for (const s of scores) {
+        if (!max.has(s.column_id)) skipped.push({ column_id: s.column_id, student_id: s.student_id, reason: 'column_deleted' });           // a deleted column is never brought back
+        else if (!studs.has(s.student_id)) skipped.push({ column_id: s.column_id, student_id: s.student_id, reason: 'student_left' });
+        else if (s.score != null && !(s.score >= 0 && s.score <= max.get(s.column_id))) skipped.push({ column_id: s.column_id, student_id: s.student_id, reason: 'invalid' });
+        else list.push(s);
+      }
+      const colIds = [...new Set(list.map(s => s.column_id))];
+      const { data: cur } = colIds.length ? await sb.from('record_scores').select('column_id,student_id,score,updated_at').in('column_id', colIds) : { data: [] };
+      const have = new Map((cur || []).map(x => [x.column_id + '|' + x.student_id, x]));
+      list = list.filter(s => {
+        const row = have.get(s.column_id + '|' + s.student_id), b0 = s.base || null, want = s.score == null ? null : Math.round(s.score * 100) / 100;
+        if (!row && want == null) return false;                                                     // already empty
+        if (row && want != null && +row.score === want) { versions.push({ column_id: s.column_id, student_id: s.student_id, updated_at: row.updated_at }); return false; }   // already that score
+        if (row && (b0 == null || ts(row.updated_at) !== ts(b0))) { skipped.push({ column_id: s.column_id, student_id: s.student_id, reason: 'changed' }); return false; }
+        if (!row && b0 != null) { skipped.push({ column_id: s.column_id, student_id: s.student_id, reason: 'deleted' }); return false; }     // cleared on the server after you looked
+        return true;
+      });
+    }
+    const sets = list.filter(s => s.score != null).map(s => ({ column_id: s.column_id, student_id: s.student_id, score: Math.round(s.score * 100) / 100, updated_at: stamp }));
+    if (sets.length) { const { error } = await sb.from('record_scores').upsert(sets); if (error) throw error; for (const x of sets) versions.push({ column_id: x.column_id, student_id: x.student_id, updated_at: stamp }); }
+    for (const s of list.filter(s => s.score == null)) await sb.from('record_scores').delete().match({ column_id: s.column_id, student_id: s.student_id });
+    r.json({ changes: list.length, skipped, versions });
   }));
   app.post('/api/record/push-grade', teacherOnly, wrap(async (q, r) => {   // class record -> term grade (weighted %, optionally transmuted 60->75)
     const { section_id, subject_id, term, transmute: tr } = q.body; const c = await myClass(q.user.id, section_id, subject_id);

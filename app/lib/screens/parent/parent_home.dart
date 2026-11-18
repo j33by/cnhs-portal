@@ -5,6 +5,7 @@ import '../../core/messenger.dart';
 import '../../core/streams.dart';
 import '../../widgets/family_home.dart';
 import '../../widgets/family_shell.dart';
+import '../../widgets/feed_view.dart';
 import '../../widgets/shared.dart';
 import '../../widgets/ui.dart';
 import '../profile_screen.dart';
@@ -126,6 +127,7 @@ class _ParentHomeState extends State<ParentHome> {
           FamilyTab(id: 'home', label: 'Home', icon: Icons.home_outlined, selectedIcon: Icons.home, build: () => kid == null ? needChild() : FamilyHome(
               key: ValueKey('home-$sel'), parent: true, studentId: sel!, name: name, studentNo: '${kid['student_no']}', sectionId: sectionId, classLabel: label,
               onGo: (t) => nav.value = t, loadPhoto: () => _kidPhoto(sel!), extra: [if (open.isNotEmpty) _requests(open)])),
+        FamilyTab(id: 'feed', label: 'Feed', icon: Icons.dynamic_feed_outlined, selectedIcon: Icons.dynamic_feed, build: () => const FeedView()),
           FamilyTab(id: 'attendance', label: 'Attendance', icon: Icons.how_to_reg_outlined, selectedIcon: Icons.how_to_reg, build: () => kid == null ? needChild()
               : AttendanceView(sel!, key: ValueKey('att-$sel'), sectionId: sectionId, studentName: name, showSubjects: true)),
           FamilyTab(id: 'grades', label: 'Grades', icon: Icons.school_outlined, selectedIcon: Icons.school, build: () => kid == null ? needChild()

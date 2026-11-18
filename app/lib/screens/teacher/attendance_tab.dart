@@ -3,6 +3,8 @@ import 'package:intl/intl.dart';
 import '../../core/api.dart';
 import '../../core/calc.dart';
 import '../../core/messenger.dart';
+import '../../core/offline.dart';
+import '../../core/outbox.dart';
 import '../../widgets/shared.dart';
 import 'class_common.dart';
 
@@ -17,11 +19,31 @@ class _AttState extends State<AttendanceTab> {
   DateTime month = DateTime(DateTime.now().year, DateTime.now().month);
   Rows studs = [];
   List<String> dates = [];
-  final st = <String, String>{}, rm = <String, String>{}, gate = <String, String>{};      // key: "date|studentId" (gate = the school-day fingerprint record)
+  final st = <String, String>{}, rm = <String, String>{}, gate = <String, String>{};
+  final ver = <String, String>{}, orig = <String, String>{}, origRm = <String, String>{};      // ver = server version of each saved mark; orig = what was loaded (to find your edits)
+  int _tick = 0, _epoch = 0;
+  String get _key => 'ca|${widget.sectionId}|${widget.subjectId}';      // key: "date|studentId" (gate = the school-day fingerprint record)
   Map<String, int> abs = {};
   int free = 10; bool apply = false, loading = true;
 
-  @override void initState() { super.initState(); _load(); }
+  @override
+  void initState() {
+    super.initState();
+    _tick = Outbox.i.syncedTick; _epoch = Net.i.epoch;
+    Outbox.i.addListener(_onSync); Net.i.addListener(_onSync);
+    _load();
+  }
+  @override
+  void dispose() { Outbox.i.removeListener(_onSync); Net.i.removeListener(_onSync); super.dispose(); }
+
+  bool _edited(String d, String sid) { final k = '$d|$sid'; return (st[k] ?? '').isNotEmpty && ((st[k] ?? '') != (orig[k] ?? '') || (rm[k] ?? '') != (origRm[k] ?? '')); }
+  bool get _dirty => dates.any((d) => studs.any((s) => _edited(d, s['id'] as String)));
+  /// Queued changes got sent, or the internet came back: show the server's data, unless you are in the middle of editing.
+  void _onSync() {
+    final changed = Outbox.i.syncedTick != _tick || Net.i.epoch != _epoch;
+    _tick = Outbox.i.syncedTick; _epoch = Net.i.epoch;
+    if (changed && mounted && !_dirty && !loading) { _load(); }
+  }
 
   Future<void> _load() async {
     setState(() => loading = true);
@@ -29,17 +51,26 @@ class _AttState extends State<AttendanceTab> {
       final yid = await currentYearId();
       final base = <String, Object>{'section_id': widget.sectionId, 'subject_id': widget.subjectId, 'school_year_id': yid};
       final from = ymd.format(month), to = ymd.format(DateTime(month.year, month.month + 1, 0));
+      final k0 = '${widget.sectionId}|${widget.subjectId}';
       final r = await Future.wait<Rows>([
         loadStudents(widget.sectionId),
-        sb.from('class_attendance').select('student_id,att_date,status,remarks').match(base).gte('att_date', from).lte('att_date', to).order('att_date'),
-        sb.from('class_attendance').select('student_id').match({...base, 'status': 'A'}),
-        sb.from('class_policy').select().match(base),
-        sb.from('daily_attendance').select('student_id,att_date,status').eq('section_id', widget.sectionId).gte('att_date', from).lte('att_date', to),
+        cachedRows('ca|$k0|$from', () => sb.from('class_attendance').select('student_id,att_date,status,remarks,updated_at').match(base).gte('att_date', from).lte('att_date', to).order('att_date')),
+        cachedRows('caabs|$k0', () => sb.from('class_attendance').select('student_id').match({...base, 'status': 'A'})),
+        cachedRows('cpol|$k0', () => sb.from('class_policy').select().match(base)),
+        cachedRows('gate|${widget.sectionId}|$from', () => sb.from('daily_attendance').select('student_id,att_date,status').eq('section_id', widget.sectionId).gte('att_date', from).lte('att_date', to)),
       ]);
-      studs = r[0]; st.clear(); rm.clear(); gate.clear();
+      studs = r[0]; st.clear(); rm.clear(); gate.clear(); ver.clear();
       for (final g in r[4]) { gate['${g['att_date']}|${g['student_id']}'] = g['status'] as String; }
       final ds = <String>{};
-      for (final a in r[1]) { final d = a['att_date'] as String; ds.add(d); st['$d|${a['student_id']}'] = a['status'] as String; if (a['remarks'] != null) { rm['$d|${a['student_id']}'] = a['remarks'] as String; } }
+      for (final a in r[1]) { final d = a['att_date'] as String; ds.add(d); st['$d|${a['student_id']}'] = a['status'] as String; if (a['remarks'] != null) { rm['$d|${a['student_id']}'] = a['remarks'] as String; } if (a['updated_at'] != null) { ver['$d|${a['student_id']}'] = a['updated_at'] as String; } }
+      for (final it in Outbox.i.pendingFor(_key)) {          // marks saved on this phone and not sent yet are shown as they will be
+        for (final dd in (it.body['dates'] as List).cast<Map<String, dynamic>>()) {
+          final d = dd['date'] as String; if (d.compareTo(from) < 0 || d.compareTo(to) > 0) { continue; }
+          ds.add(d);
+          for (final e in (dd['entries'] as List).cast<Map<String, dynamic>>()) { st['$d|${e['student_id']}'] = e['status'] as String; final rk = '${e['remarks'] ?? ''}'; if (rk.isNotEmpty) { rm['$d|${e['student_id']}'] = rk; } else { rm.remove('$d|${e['student_id']}'); } }
+        }
+      }
+      orig..clear()..addAll(st); origRm..clear()..addAll(rm);
       dates = ds.toList()..sort();
       abs = {};
       for (final a in r[2]) { final k = a['student_id'] as String; abs[k] = (abs[k] ?? 0) + 1; }
@@ -70,10 +101,17 @@ class _AttState extends State<AttendanceTab> {
   }
 
   Future<void> _save() async {
-    final payload = [for (final d in dates) {'date': d, 'entries': [for (final s in studs) if ((st['$d|${s['id']}'] ?? '').isNotEmpty) {'student_id': s['id'], 'status': st['$d|${s['id']}'], 'remarks': rm['$d|${s['id']}'] ?? ''}]}];
+    final payload = <Map<String, dynamic>>[];
+    for (final d in dates) {
+      final entries = [for (final s in studs) if (_edited(d, s['id'] as String)) {'student_id': s['id'], 'status': st['$d|${s['id']}'], 'remarks': rm['$d|${s['id']}'] ?? '', if (ver['$d|${s['id']}'] != null) 'base': ver['$d|${s['id']}']}];
+      if (entries.isNotEmpty) { payload.add({'date': d, 'entries': entries}); }
+    }
+    if (payload.isEmpty) { toast('No changes to save'); return; }
     try {
-      final r = await Api.post('/api/class-attendance', {'section_id': widget.sectionId, 'subject_id': widget.subjectId, 'dates': payload});
-      toast('Attendance saved (${r['saved']} marks)${(r['dropped'] ?? 0) > 0 ? '. ${r['dropped']} student(s) exceeded the absence limit and were marked Dropped.' : ''}');
+      final r = await Outbox.i.submit(kind: 'class_attendance', key: _key, label: 'Attendance · ${classLabelOf(widget.sectionId, widget.subjectId)}', method: 'POST', path: '/api/class-attendance',
+          body: {'section_id': widget.sectionId, 'subject_id': widget.subjectId, 'dates': payload});
+      if (r == null) { toast('Saved on this phone. It will sync when the internet is back.'); }
+      else { toast('Attendance saved (${r['saved']} marks)${(r['dropped'] ?? 0) > 0 ? '. ${r['dropped']} student(s) exceeded the absence limit and were marked Dropped.' : ''}'); }
       await _load();
     } catch (e) { toastError(e); }
   }

@@ -6,6 +6,7 @@ import 'core/api.dart';
 import 'core/lookup.dart';
 import 'core/messenger.dart';
 import 'core/offline.dart';
+import 'core/outbox.dart';
 import 'core/push.dart';
 import 'core/session.dart';
 import 'screens/login.dart';
@@ -18,6 +19,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Supabase.initialize(url: Config.supabaseUrl, anonKey: Config.supabaseAnonKey);
   await LocalCache.init();          // last saved data + who was signed in
+  Outbox.i.init();                  // saved offline changes (sent when online)
   Net.i.start();                    // online / offline watcher
   await Net.i.check();              // know right away if we start offline, so saved data shows instantly
   try { await Push.init(); } catch (_) {}

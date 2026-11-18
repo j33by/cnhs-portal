@@ -5,6 +5,7 @@ import '../core/messenger.dart';
 import '../widgets/avatar_picker.dart';
 import '../widgets/ui.dart';
 import '../core/offline.dart';
+import '../core/outbox.dart';
 
 class _Field {
   final String key, label; final bool req, multiline; final TextInputType? type;
@@ -66,6 +67,18 @@ class _ProfileTabState extends State<ProfileTab> {
       _fill();
     } catch (e) { toastError(e); }
     if (mounted) setState(() {});
+  }
+
+  Future<void> _signOut() async {
+    final n = Outbox.i.mine.length;
+    if (n > 0) {
+      final ok = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
+        title: const Text('Changes not synced yet'),
+        content: Text('$n saved change${n == 1 ? '' : 's'} on this phone ${n == 1 ? 'has' : 'have'} not reached the server. They stay on this phone and are sent the next time you sign in with this account and have internet.'),
+        actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Stay signed in')), FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Sign out anyway'))]));
+      if (ok != true) { return; }
+    }
+    await appSignOut();
   }
 
   void _fill() {
@@ -171,7 +184,7 @@ class _ProfileTabState extends State<ProfileTab> {
           const SizedBox(height: 22),
           OutlinedButton.icon(
             style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48), foregroundColor: Colors.red.shade700, side: BorderSide(color: Colors.red.shade300), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
-            onPressed: () => appSignOut(), icon: const Icon(Icons.logout), label: const Text('Sign out')),
+            onPressed: _signOut, icon: const Icon(Icons.logout), label: const Text('Sign out')),
         ]))))),
     ]);
   }

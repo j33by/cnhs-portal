@@ -54,11 +54,11 @@ class _FamilyShellState extends State<FamilyShell> {
               const VerticalDivider(width: 1), Expanded(child: body),
             ])
           : body,
-      bottomNavigationBar: wide ? null : NavigationBar(
+      bottomNavigationBar: wide ? null : NavigationBarTheme(data: NavigationBarThemeData(labelTextStyle: WidgetStatePropertyAll(TextStyle(fontSize: tabs.length > 5 ? 10.5 : 12, fontWeight: FontWeight.w600))), child: NavigationBar(
         height: 68, labelBehavior: NavigationDestinationLabelBehavior.alwaysShow, selectedIndex: i,
         onDestinationSelected: (x) => widget.selected.value = tabs[x].id,
         destinations: [for (final t in tabs) NavigationDestination(icon: _icon(t, false), selectedIcon: _icon(t, true), label: t.label)],
-      ),
+      )),
     );
   }
 }

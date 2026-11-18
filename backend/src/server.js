@@ -7,6 +7,7 @@ const { parseEmployeeForm, } = require('./services/biometric');
 const { buildEmployeeForm } = require('./services/xlsWriter');
 const { notify } = require('./services/notify');
 const mountClasses = require('./routes/classes');
+const mountFeed = require('./routes/feed');
 const { cleanProfile } = require('./services/profile');
 const { findConflicts, parseSlots } = require('./services/slots');
 const { sendClassReminders } = require('./services/reminders');
@@ -202,6 +203,7 @@ app.delete('/api/schedules/:id', teacherOnly, wrap(async (q, r) => {
   if (s.sections.adviser_id !== q.user.id && s.teacher_id !== q.user.id) throw bad('Only the adviser or the class teacher can change this schedule', 403);
   await sb.from('schedules').delete().eq('id', q.params.id); r.json({ ok: true }); }));
 
+mountFeed(app, { sb, wrap, bad, teacherOnly, curYear });                 // announcements feed: posts, reactions, comments
 mountClasses(app, { sb, wrap, bad, teacherOnly, curYear });   // class record, subject + homeroom attendance, grades
 
 // ============ USB / biometric sync (called by the Windows app) ============
@@ -247,4 +249,5 @@ setInterval(() => {                                                          // 
   processClosures(sb).catch(e => console.error('auto absent:', e.message));
   applyDueCancellations(sb).catch(e => console.error('no class:', e.message));
 }, 60000);
+setInterval(() => Promise.resolve(sb.from('sync_ops').delete().lt('created_at', new Date(Date.now() - 30 * 864e5).toISOString())).catch(() => {}), 6 * 3600000);   // forget old operation ids
 app.listen(process.env.PORT || 3000, () => console.log('CNHS API up'));

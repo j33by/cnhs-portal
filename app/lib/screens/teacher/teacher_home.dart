@@ -6,10 +6,10 @@ import '../../core/teacher_data.dart';
 import '../../core/usb_sync.dart';
 import '../profile_screen.dart';
 import 'alerts_tab.dart';
+import '../../widgets/feed_view.dart';
 import 'bind_requests.dart';
 import 'classes.dart';
 import 'home_tab.dart';
-import 'my_subjects.dart';
 import 'usb_panel.dart';
 
 class _Tab {
@@ -52,7 +52,7 @@ class _TeacherHomeState extends State<TeacherHome> {
     final tabs = <_Tab>[
       _Tab('Home', Icons.home_outlined, Icons.home, HomeTab(profile: widget.profile, onOpenClass: _openClass)),
       _Tab('Classes', Icons.menu_book_outlined, Icons.menu_book, MyClasses(teacherId: widget.profile['id'])),
-      const _Tab('Subjects', Icons.library_books_outlined, Icons.library_books, MySubjects()),
+      const _Tab('Feed', Icons.dynamic_feed_outlined, Icons.dynamic_feed, FeedView(canPost: true)),
       _Tab('Requests', Icons.how_to_reg_outlined, Icons.how_to_reg, const BindRequests(), badge: pending),
       if (desktop) _Tab('Biometric USB', Icons.usb, Icons.usb, UsbPanel(usb: usb)),
       _Tab('Alerts', Icons.notifications_outlined, Icons.notifications, const AlertsTab(), badge: unread),

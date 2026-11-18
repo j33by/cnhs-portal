@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../core/messenger.dart';
 import '../core/offline.dart';
+import '../core/outbox.dart';
+import 'sync_ui.dart';
 import 'package:intl/intl.dart';
 
 /// School photo banner with a soft dark overlay so white text stays readable. Used behind the Home and Profile headers.
@@ -121,27 +123,32 @@ class EmptyState extends StatelessWidget {
       ])));
 }
 
-/// Thin strip under the app bar: amber while there is no internet (with the time of the last update), green for a moment when it is back.
+/// Thin strip under the app bar: red when saved changes need attention, amber while offline (with the time of the last update),
+/// blue while saved changes are being sent, green for a moment when the internet is back. Tap it for the sync details.
 class OfflineBanner extends StatelessWidget {
   const OfflineBanner({super.key});
+  Widget _bar(BuildContext c, Color col, IconData icon, String text, {bool tap = false}) => InkWell(
+        onTap: tap ? () => showSyncSheet(c) : null,
+        child: Container(
+          width: double.infinity, color: col, padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+          child: Row(children: [
+            Icon(icon, size: 17, color: Colors.white), const SizedBox(width: 8),
+            Expanded(child: Text(text, style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w600))),
+            if (tap) const Icon(Icons.chevron_right, size: 18, color: Colors.white),
+          ]),
+        ),
+      );
+
   @override
-  Widget build(BuildContext c) => ListenableBuilder(listenable: Net.i, builder: (c, _) {
+  Widget build(BuildContext c) => ListenableBuilder(listenable: Listenable.merge([Net.i, Outbox.i]), builder: (c, _) {
+        final w = Outbox.i.waiting, f = Outbox.i.failed;
+        if (f > 0) { return _bar(c, Colors.red.shade700, Icons.error_outline, '$f saved change${f == 1 ? '' : 's'} need${f == 1 ? 's' : ''} attention', tap: true); }
         if (!Net.i.online) {
           final t = Net.i.lastOnline;
-          return Container(
-            width: double.infinity, color: Colors.amber.shade800, padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-            child: Row(children: [
-              const Icon(Icons.cloud_off, size: 17, color: Colors.white), const SizedBox(width: 8),
-              Expanded(child: Text(t == null ? "You're offline. Showing your last saved data." : "You're offline. Showing data saved ${DateFormat('MMM d, h:mm a').format(t)}.", style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w600))),
-            ]),
-          );
+          return _bar(c, Colors.amber.shade800, Icons.cloud_off, (t == null ? "You're offline." : "You're offline. Showing data saved ${DateFormat('MMM d, h:mm a').format(t)}.") + (w > 0 ? ' $w change${w == 1 ? '' : 's'} will sync when you are online.' : ''), tap: w > 0);
         }
-        if (Net.i.justBack) {
-          return Container(
-            width: double.infinity, color: Colors.green.shade700, padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-            child: const Row(children: [Icon(Icons.cloud_done, size: 17, color: Colors.white), SizedBox(width: 8), Expanded(child: Text("Back online. Updating live data…", style: TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w600)))]),
-          );
-        }
+        if (w > 0) { return _bar(c, Colors.blue.shade700, Icons.sync, 'Syncing $w saved change${w == 1 ? '' : 's'}…', tap: true); }
+        if (Net.i.justBack) { return _bar(c, Colors.green.shade700, Icons.cloud_done, 'Back online. Updating live data…'); }
         return const SizedBox.shrink();
       });
 }
