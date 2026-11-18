@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../core/api.dart';
 import '../../core/messenger.dart';
+import '../../core/offline.dart';
 
 /// Biometric device IDs belong to STUDENTS only. Attach a device ID that already exists on the terminal to a student
 /// (the school Student ID stays as it is).
@@ -39,8 +40,8 @@ class _UnlinkedState extends State<UnlinkedDeviceCount> {
   @override
   void initState() {
     super.initState();
-    _a = sb.from('device_people').stream(primaryKey: ['biometric_id']).listen((r) { if (mounted) { setState(() => people = r); } }, onError: (_) {});
-    _b = sb.from('students').stream(primaryKey: ['id']).listen((r) { if (mounted) { setState(() => used = {for (final x in r) if (x['biometric_id'] != null) x['biometric_id']}); } }, onError: (_) {});
+    _a = liveStream('device_people', () => sb.from('device_people').stream(primaryKey: ['biometric_id'])).listen((r) { if (mounted) { setState(() => people = r); } }, onError: (_) {});
+    _b = liveStream('students', () => sb.from('students').stream(primaryKey: ['id'])).listen((r) { if (mounted) { setState(() => used = {for (final x in r) if (x['biometric_id'] != null) x['biometric_id']}); } }, onError: (_) {});
   }
   @override
   void dispose() { _a?.cancel(); _b?.cancel(); super.dispose(); }

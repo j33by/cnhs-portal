@@ -6,6 +6,7 @@ import '../../core/teacher_data.dart';
 import '../../widgets/colors.dart';
 import '../../widgets/status.dart';
 import '../../widgets/ui.dart';
+import '../../core/offline.dart';
 
 const _reasons = ['Teacher unavailable', 'Meeting / training', 'Holiday / suspension', 'Bad weather', 'School activity', 'Other'];
 final _ymd = DateFormat('yyyy-MM-dd');
@@ -27,7 +28,7 @@ class _NoClassTabState extends State<NoClassTab> {
   String reason = _reasons.first;
   final msg = TextEditingController();
   bool sending = false;
-  late final Stream<List<Map<String, dynamic>>> _recent = sb.from('class_cancellations').stream(primaryKey: ['id']).eq('created_by', sb.auth.currentUser!.id).order('cancel_date', ascending: false).limit(20);
+  late final Stream<List<Map<String, dynamic>>> _recent = liveStream('class_cancellations|created_by=${myUid}|o|l', () => sb.from('class_cancellations').stream(primaryKey: ['id']).eq('created_by', myUid).order('cancel_date', ascending: false).limit(20));
 
   @override
   void dispose() { msg.dispose(); super.dispose(); }

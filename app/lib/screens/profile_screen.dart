@@ -4,6 +4,7 @@ import '../core/api.dart';
 import '../core/messenger.dart';
 import '../widgets/avatar_picker.dart';
 import '../widgets/ui.dart';
+import '../core/offline.dart';
 
 class _Field {
   final String key, label; final bool req, multiline; final TextInputType? type;
@@ -53,14 +54,14 @@ class _ProfileTabState extends State<ProfileTab> {
 
   Future<void> _load() async {
     try {
-      final uid = sb.auth.currentUser!.id;
-      final p = await sb.from('profiles').select().eq('id', uid).single();
+      final uid = myUid;
+      final p = (await cachedRow('profile', () => sb.from('profiles').select().eq('id', uid).maybeSingle()))!;
       Map<String, dynamic>? r;
       if (p['role'] == 'student') {
-        r = await sb.from('students').select().eq('id', uid).single();
-        if (r['section_id'] != null) { r['sections'] = await sb.from('sections').select('name,grade_level').eq('id', r['section_id']).maybeSingle(); }
+        r = await cachedRow('me-student', () => sb.from('students').select().eq('id', uid).maybeSingle());
+        if (r != null && r['section_id'] != null) { final sid = r['section_id']; r['sections'] = await cachedRow('section|$sid', () => sb.from('sections').select('name,grade_level').eq('id', sid).maybeSingle()); }
       }
-      else if (p['role'] == 'teacher') { r = await sb.from('teachers').select().eq('id', uid).single(); }
+      else if (p['role'] == 'teacher') { r = await cachedRow('me-teacher', () => sb.from('teachers').select().eq('id', uid).maybeSingle()); }
       prof = p; row = r;
       _fill();
     } catch (e) { toastError(e); }
@@ -96,17 +97,12 @@ class _ProfileTabState extends State<ProfileTab> {
   Widget _info(IconData icon, String label, String value) => ListTile(dense: true, leading: Icon(icon), title: Text(label, style: const TextStyle(fontSize: 12.5)), subtitle: Text(value.isEmpty ? '—' : value, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14.5)));
 
   Widget _hero(BuildContext c, String? id) {
-    final cs = Theme.of(c).colorScheme, name = '${prof!['full_name']}';
-    return Container(
-      width: double.infinity, padding: const EdgeInsets.fromLTRB(16, 22, 16, 26),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [cs.primary, Color.lerp(cs.primary, Colors.black, .35)!]),
-        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(32)),
-      ),
+    final name = '${prof!['full_name']}';
+    return SchoolBackdrop(
       child: Column(children: [
         Container(padding: const EdgeInsets.all(3), decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle), child: AvatarPicker(url: prof!['photo_url'] as String?, onUploaded: _photo)),
         const SizedBox(height: 12),
-        Text(name, textAlign: TextAlign.center, style: TextStyle(color: cs.onPrimary, fontSize: 22, fontWeight: FontWeight.bold)),
+        Text(name, textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
         const SizedBox(height: 6),
         Pill(role == 'student' ? 'Student' : role == 'teacher' ? 'Teacher' : 'Parent / Guardian', Colors.white, icon: Icons.verified_user),
         if (id != null) ...[
@@ -118,15 +114,15 @@ class _ProfileTabState extends State<ProfileTab> {
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
               decoration: BoxDecoration(color: Colors.white.withValues(alpha: .18), borderRadius: BorderRadius.circular(20)),
               child: Row(mainAxisSize: MainAxisSize.min, children: [
-                Icon(Icons.badge, size: 16, color: cs.onPrimary), const SizedBox(width: 6),
-                Text('${role == 'student' ? 'Student' : 'Teacher'} ID  $id', style: TextStyle(color: cs.onPrimary, fontWeight: FontWeight.w600, letterSpacing: .5)),
-                const SizedBox(width: 6), Icon(Icons.copy, size: 14, color: cs.onPrimary.withValues(alpha: .8)),
+                Icon(Icons.badge, size: 16, color: Colors.white), const SizedBox(width: 6),
+                Text('${role == 'student' ? 'Student' : 'Teacher'} ID  $id', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, letterSpacing: .5)),
+                const SizedBox(width: 6), Icon(Icons.copy, size: 14, color: Colors.white.withValues(alpha: .8)),
               ]),
             ),
           ),
         ],
         const SizedBox(height: 6),
-        Text('Tap the photo to change it', style: TextStyle(color: cs.onPrimary.withValues(alpha: .75), fontSize: 11.5)),
+        Text('Tap the photo to change it', style: TextStyle(color: Colors.white.withValues(alpha: .75), fontSize: 11.5)),
       ]),
     );
   }
@@ -175,7 +171,7 @@ class _ProfileTabState extends State<ProfileTab> {
           const SizedBox(height: 22),
           OutlinedButton.icon(
             style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48), foregroundColor: Colors.red.shade700, side: BorderSide(color: Colors.red.shade300), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
-            onPressed: () => sb.auth.signOut(), icon: const Icon(Icons.logout), label: const Text('Sign out')),
+            onPressed: () => appSignOut(), icon: const Icon(Icons.logout), label: const Text('Sign out')),
         ]))))),
     ]);
   }

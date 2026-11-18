@@ -5,6 +5,7 @@ import '../../core/messenger.dart';
 import '../../widgets/colors.dart';
 import '../../widgets/schedule_blocks.dart';
 import 'class_common.dart';
+import '../../core/offline.dart';
 
 /// A teacher creates a class: grade level + one of their subjects + section/room + schedule.
 /// A section or room that already exists for that grade (under anyone's advisory) is picked automatically.
@@ -54,7 +55,7 @@ class _AddClassState extends State<AddClassScreen> {
     try {
       _yid ??= await currentYearId();
       await _refreshSections();
-      _secSub = sb.from('sections').stream(primaryKey: ['id']).eq('grade_level', grade!).listen((_) => _refreshSections(), onError: (_) {});
+      _secSub = liveStream('sections|grade_level=${grade!}', () => sb.from('sections').stream(primaryKey: ['id']).eq('grade_level', grade!)).listen((_) => _refreshSections(), onError: (_) {});
     } catch (e) { toastError(e); }
   }
 

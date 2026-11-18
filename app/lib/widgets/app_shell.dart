@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 abstract class ShellEntry { const ShellEntry(); }
@@ -20,7 +21,7 @@ class DrawerProfileHeader extends StatelessWidget {
     return Container(
       width: double.infinity, color: cs.primary, padding: const EdgeInsets.fromLTRB(16, 28, 16, 16),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        CircleAvatar(radius: 32, backgroundImage: photo != null ? NetworkImage(photo!) : null, child: photo == null ? Text(name.isEmpty ? '?' : name[0].toUpperCase(), style: const TextStyle(fontSize: 26)) : null),
+        CircleAvatar(radius: 32, backgroundImage: photo != null ? CachedNetworkImageProvider(photo!) : null, child: photo == null ? Text(name.isEmpty ? '?' : name[0].toUpperCase(), style: const TextStyle(fontSize: 26)) : null),
         const SizedBox(height: 12),
         Text(name, style: TextStyle(color: cs.onPrimary, fontSize: 18, fontWeight: FontWeight.bold)),
         Text(line1, style: TextStyle(color: cs.onPrimary.withValues(alpha: .85))),

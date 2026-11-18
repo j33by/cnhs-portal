@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../core/api.dart';
 import '../../core/messenger.dart';
+import '../../core/offline.dart';
 
 /// Parent link requests waiting for approval (live). Names come with each request, so nothing is looked up per row.
 class BindRequests extends StatelessWidget {
@@ -13,7 +14,7 @@ class BindRequests extends StatelessWidget {
 
   @override
   Widget build(BuildContext c) => StreamBuilder<List<Map<String, dynamic>>>(
-        stream: sb.from('parent_links').stream(primaryKey: ['id']).eq('status', 'pending'),
+        stream: liveStream('parent_links|status=pending', () => sb.from('parent_links').stream(primaryKey: ['id']).eq('status', 'pending')),
         builder: (c, s) {
           if (!s.hasData) return const Center(child: CircularProgressIndicator());
           if (s.data!.isEmpty) return const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('No pending requests. When a parent asks to link a child, it appears here.', textAlign: TextAlign.center)));

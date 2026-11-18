@@ -1,3 +1,4 @@
+import '../../widgets/ui.dart';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../core/streams.dart';
@@ -59,7 +60,7 @@ class _TeacherHomeState extends State<TeacherHome> {
     ];
     if (i >= tabs.length) { i = 0; }
     visited.add(i);
-    final body = IndexedStack(index: i, children: [for (var k = 0; k < tabs.length; k++) visited.contains(k) ? TickerMode(enabled: k == i, child: tabs[k].page) : const SizedBox.shrink()]);
+    final body = Column(children: [const OfflineBanner(), Expanded(child: IndexedStack(index: i, children: [for (var k = 0; k < tabs.length; k++) visited.contains(k) ? TickerMode(enabled: k == i, child: tabs[k].page) : const SizedBox.shrink()]))]);
     return Scaffold(
       appBar: AppBar(
         title: Text(tabs[i].label),

@@ -3,6 +3,7 @@ import '../../core/api.dart';
 import '../../core/messenger.dart';
 import '../../widgets/schedule_blocks.dart';
 import '../../widgets/shared.dart';
+import '../../core/offline.dart';
 
 /// This subject's schedule in this section. The class teacher can add and remove times.
 class ClassScheduleTab extends StatelessWidget {
@@ -31,7 +32,7 @@ class ClassScheduleTab extends StatelessWidget {
   Widget build(BuildContext c) => Scaffold(
         floatingActionButton: FloatingActionButton(onPressed: () => _add(c), child: const Icon(Icons.add)),
         body: StreamBuilder<List<Map<String, dynamic>>>(
-          stream: sb.from('schedules').stream(primaryKey: ['id']).eq('section_id', sectionId),
+          stream: liveStream('schedules|section_id=${sectionId}', () => sb.from('schedules').stream(primaryKey: ['id']).eq('section_id', sectionId)),
           builder: (c, s) {
             if (!s.hasData) return const Center(child: CircularProgressIndicator());
             final rows = s.data!.where((x) => x['subject_id'] == subjectId).toList()

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -7,6 +8,7 @@ import '../../core/messenger.dart';
 import '../../core/teacher_data.dart';
 import '../../widgets/colors.dart';
 import '../../widgets/shared.dart';
+import '../../core/offline.dart';
 
 const _dayShort = ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
 
@@ -47,9 +49,9 @@ class _HomeTabState extends State<HomeTab> {
 
   Future<void> _loadMe() async {
     try {
-      final uid = sb.auth.currentUser!.id;
-      final t = await sb.from('teachers').select('teacher_no,alert_minutes').eq('id', uid).single();
-      final p = await sb.from('profiles').select('photo_url').eq('id', uid).maybeSingle();
+      final uid = myUid;
+      final t = await cachedRow('me-teacher-home', () => sb.from('teachers').select('teacher_no,alert_minutes').eq('id', uid).maybeSingle());
+      final p = await cachedRow('myphoto', () => sb.from('profiles').select('photo_url').eq('id', uid).maybeSingle());
       if (mounted) { setState(() { me = t; photo = p?['photo_url'] as String?; }); }
     } catch (e) { toastError(e); }
   }
@@ -81,7 +83,7 @@ class _HomeTabState extends State<HomeTab> {
         const SizedBox(height: 12),
         Container(
           padding: const EdgeInsets.all(3), decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
-          child: CircleAvatar(radius: 52, backgroundImage: (photo ?? widget.profile['photo_url']) != null ? NetworkImage((photo ?? widget.profile['photo_url']) as String) : null,
+          child: CircleAvatar(radius: 52, backgroundImage: (photo ?? widget.profile['photo_url']) != null ? CachedNetworkImageProvider((photo ?? widget.profile['photo_url']) as String) : null,
               child: (photo ?? widget.profile['photo_url']) == null ? Text(name.isEmpty ? '?' : name[0].toUpperCase(), style: const TextStyle(fontSize: 38)) : null),
         ),
         const SizedBox(height: 12),

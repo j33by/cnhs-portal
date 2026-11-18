@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'api.dart';
+import 'offline.dart';
 
 /// Subject and teacher names, loaded once and kept live, so screens can show names without re-querying on every rebuild.
 class Lookup extends ChangeNotifier {
@@ -17,7 +18,7 @@ class Lookup extends ChangeNotifier {
     if (_started) return;
     _started = true;
     refreshTeachers();
-    _sub = sb.from('subjects').stream(primaryKey: ['id']).listen((rows) {
+    _sub = liveStream('subjects', () => sb.from('subjects').stream(primaryKey: ['id'])).listen((rows) {
       subjects..clear()..addAll({for (final r in rows) r['id'] as String: '${r['name']}'});
       notifyListeners();
     }, onError: (_) {});
@@ -32,7 +33,7 @@ class Lookup extends ChangeNotifier {
     if (_refreshing) return;
     _refreshing = true;
     try {
-      final r = await sb.from('teacher_names').select('id,first_name,last_name');
+      final r = await cachedRows('teacher_names', () => sb.from('teacher_names').select('id,first_name,last_name'));
       teachers..clear()..addAll({for (final x in r) x['id'] as String: '${x['first_name']} ${x['last_name']}'});
       notifyListeners();
     } catch (_) {}

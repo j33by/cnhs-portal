@@ -7,6 +7,7 @@ import '../core/lookup.dart';
 import 'colors.dart';
 import 'status.dart';
 import 'ui.dart';
+import '../core/offline.dart';
 
 final _ymd = DateFormat('yyyy-MM-dd');
 
@@ -39,8 +40,8 @@ class _SectionFeedState extends State<SectionFeed> {
   void _subscribe() {
     final id = widget.sectionId;
     if (id == null) { loaded = true; return; }
-    _a = sb.from('schedules').stream(primaryKey: ['id']).eq('section_id', id).listen((r) { if (mounted) { setState(() { rows = r; loaded = true; }); } }, onError: (_) {});
-    _b = sb.from('class_cancellations').stream(primaryKey: ['id']).eq('section_id', id).listen((r) { if (mounted) { setState(() => cancels = r); } }, onError: (_) {});
+    _a = liveStream('schedules|section_id=${id}', () => sb.from('schedules').stream(primaryKey: ['id']).eq('section_id', id)).listen((r) { if (mounted) { setState(() { rows = r; loaded = true; }); } }, onError: (_) {});
+    _b = liveStream('class_cancellations|section_id=${id}', () => sb.from('class_cancellations').stream(primaryKey: ['id']).eq('section_id', id)).listen((r) { if (mounted) { setState(() => cancels = r); } }, onError: (_) {});
   }
 
   List<Map<String, dynamic>> _slots() {

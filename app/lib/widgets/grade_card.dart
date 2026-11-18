@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../core/api.dart';
 import '../core/lookup.dart';
 import 'ui.dart';
+import '../core/offline.dart';
 
 String _fmt(num v) => v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(1);
 String _honor(double avg, bool noFail) => !noFail ? '' : avg >= 98 ? 'With Highest Honors' : avg >= 95 ? 'With High Honors' : avg >= 90 ? 'With Honors' : '';
@@ -16,14 +17,14 @@ class GradesView extends StatefulWidget {
 }
 
 class _GradesViewState extends State<GradesView> {
-  late final Stream<List<Map<String, dynamic>>> _stream = sb.from('grades').stream(primaryKey: ['id']).eq('student_id', widget.studentId);
+  late final Stream<List<Map<String, dynamic>>> _stream = liveStream('grades|student_id=${widget.studentId}', () => sb.from('grades').stream(primaryKey: ['id']).eq('student_id', widget.studentId));
   String? year;
 
   @override
   void initState() { super.initState(); _loadYear(); }
   Future<void> _loadYear() async {
     try {
-      final y = await sb.from('school_years').select('label').eq('is_current', true).maybeSingle();
+      final y = await cachedRow('year', () => sb.from('school_years').select('label').eq('is_current', true).maybeSingle());
       if (mounted && y != null) { setState(() => year = '${y['label']}'); }
     } catch (_) {}
   }

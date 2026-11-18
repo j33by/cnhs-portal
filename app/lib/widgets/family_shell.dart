@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'ui.dart';
 
 class FamilyTab {
   final String id, label; final IconData icon, selectedIcon; final Widget Function() build; final int badge;
@@ -38,6 +39,7 @@ class _FamilyShellState extends State<FamilyShell> {
     final wide = Platform.isWindows || MediaQuery.sizeOf(c).width >= 900;
     final top = widget.top?.call(tabs[i].id);
     final body = Column(children: [
+      const OfflineBanner(),
       if (top != null) top,
       Expanded(child: IndexedStack(index: i, children: [for (final t in tabs) visited.contains(t.id) ? TickerMode(enabled: t.id == tabs[i].id, child: KeyedSubtree(key: ValueKey(t.id), child: t.build())) : const SizedBox.shrink()])),
     ]);

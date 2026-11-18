@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'api.dart';
+import 'offline.dart';
 
 /// The teacher's classes, advisories and weekly schedule, loaded once and kept live.
 /// The Home and Classes tabs both read from here, so nothing is queried twice and nothing flashes on rebuild.
@@ -22,9 +23,9 @@ class TeacherData extends ChangeNotifier {
     _uid = uid;
     reload();
     void on(Stream<dynamic> s) => _subs.add(s.listen((_) => _soon(), onError: (_) {}));
-    on(sb.from('section_subjects').stream(primaryKey: ['section_id', 'subject_id']).eq('teacher_id', uid));
-    on(sb.from('schedules').stream(primaryKey: ['id']).eq('teacher_id', uid));
-    on(sb.from('sections').stream(primaryKey: ['id']).eq('adviser_id', uid));
+    on(liveStream('section_subjects|teacher_id=${uid}', () => sb.from('section_subjects').stream(primaryKey: ['section_id', 'subject_id']).eq('teacher_id', uid)));
+    on(liveStream('schedules|teacher_id=${uid}', () => sb.from('schedules').stream(primaryKey: ['id']).eq('teacher_id', uid)));
+    on(liveStream('sections|adviser_id=${uid}', () => sb.from('sections').stream(primaryKey: ['id']).eq('adviser_id', uid)));
   }
 
   void stop() {
@@ -39,17 +40,17 @@ class TeacherData extends ChangeNotifier {
     final uid = _uid;
     if (uid == null) { return; }
     try {
-      final ss = await sb.from('section_subjects').select('section_id,subject_id').eq('teacher_id', uid);
-      final adv = await sb.from('sections').select('id').eq('adviser_id', uid);
+      final ss = await cachedRows('td:ss', () => sb.from('section_subjects').select('section_id,subject_id').eq('teacher_id', uid));
+      final adv = await cachedRows('td:adv', () => sb.from('sections').select('id').eq('adviser_id', uid));
       final advIds = {for (final x in adv) x['id'] as String};
       final secIds = {...advIds, for (final x in ss) x['section_id'] as String}.toList();
       if (secIds.isEmpty) { classes = []; advisories = []; slots = []; loaded = true; notifyListeners(); return; }
       final subIds = {for (final x in ss) x['subject_id'] as String}.toList();
       final r = await Future.wait<List<Map<String, dynamic>>>([
-        sb.from('sections').select('id,grade_level,name,homeroom,grading_term').inFilter('id', secIds),
-        subIds.isEmpty ? Future.value(<Map<String, dynamic>>[]) : sb.from('subjects').select('id,code,name').inFilter('id', subIds),
-        sb.from('schedules').select('id,section_id,subject_id,day_of_week,start_time,end_time,room').eq('teacher_id', uid),
-        sb.from('students').select('section_id').inFilter('section_id', secIds).eq('status', 'enrolled'),
+        cachedRows('td:sec', () => sb.from('sections').select('id,grade_level,name,homeroom,grading_term').inFilter('id', secIds)),
+        subIds.isEmpty ? Future.value(<Map<String, dynamic>>[]) : cachedRows('td:sub', () => sb.from('subjects').select('id,code,name').inFilter('id', subIds)),
+        cachedRows('td:sched', () => sb.from('schedules').select('id,section_id,subject_id,day_of_week,start_time,end_time,room').eq('teacher_id', uid)),
+        cachedRows('td:count', () => sb.from('students').select('section_id').inFilter('section_id', secIds).eq('status', 'enrolled')),
       ]);
       final secs = {for (final x in r[0]) x['id'] as String: x}, subs = {for (final x in r[1]) x['id'] as String: x};
       final count = <String, int>{};

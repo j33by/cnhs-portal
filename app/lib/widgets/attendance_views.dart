@@ -6,6 +6,7 @@ import 'colors.dart';
 import 'schedule_widgets.dart';
 import 'status.dart';
 import 'ui.dart';
+import '../core/offline.dart';
 
 final _ymd = DateFormat('yyyy-MM-dd');
 
@@ -21,7 +22,7 @@ class AttendanceView extends StatefulWidget {
 }
 
 class _AttendanceViewState extends State<AttendanceView> {
-  late final Stream<List<Map<String, dynamic>>> _stream = sb.from('daily_attendance').stream(primaryKey: ['student_id', 'att_date']).eq('student_id', widget.studentId).order('att_date', ascending: false);
+  late final Stream<List<Map<String, dynamic>>> _stream = liveStream('daily_attendance|student_id=${widget.studentId}|o', () => sb.from('daily_attendance').stream(primaryKey: ['student_id', 'att_date']).eq('student_id', widget.studentId).order('att_date', ascending: false));
   DateTime month = DateTime(DateTime.now().year, DateTime.now().month);
   String? selected = _ymd.format(DateTime.now());
 
@@ -187,7 +188,7 @@ class TodayAttendanceCard extends StatefulWidget {
 }
 
 class _TodayAttendanceCardState extends State<TodayAttendanceCard> {
-  late final Stream<List<Map<String, dynamic>>> _stream = sb.from('daily_attendance').stream(primaryKey: ['student_id', 'att_date']).eq('student_id', widget.studentId);
+  late final Stream<List<Map<String, dynamic>>> _stream = liveStream('daily_attendance|student_id=${widget.studentId}', () => sb.from('daily_attendance').stream(primaryKey: ['student_id', 'att_date']).eq('student_id', widget.studentId));
 
   @override
   Widget build(BuildContext c) => StreamBuilder<List<Map<String, dynamic>>>(stream: _stream, builder: (c, s) {
@@ -250,7 +251,7 @@ class SubjectAttendanceBody extends StatefulWidget {
 }
 
 class _SubjectAttendanceBodyState extends State<SubjectAttendanceBody> {
-  late final Stream<List<Map<String, dynamic>>> _stream = sb.from('class_attendance').stream(primaryKey: ['student_id', 'subject_id', 'att_date']).eq('student_id', widget.studentId);
+  late final Stream<List<Map<String, dynamic>>> _stream = liveStream('class_attendance|student_id=${widget.studentId}', () => sb.from('class_attendance').stream(primaryKey: ['student_id', 'subject_id', 'att_date']).eq('student_id', widget.studentId));
 
   Widget _todayRow(BuildContext c, Map<String, dynamic> slot, Map<String, Map<String, dynamic>> todayBy) {
     final now = DateTime.now(), nowMin = now.hour * 60 + now.minute, a = minOf('${slot['start_time']}'), b = minOf('${slot['end_time']}');

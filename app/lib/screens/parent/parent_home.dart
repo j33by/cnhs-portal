@@ -8,6 +8,7 @@ import '../../widgets/family_shell.dart';
 import '../../widgets/shared.dart';
 import '../../widgets/ui.dart';
 import '../profile_screen.dart';
+import '../../core/offline.dart';
 
 /// Parent app: Home, Attendance, Grades, Alerts, Profile. With more than one child a switcher sits above the child's tabs.
 class ParentHome extends StatefulWidget {
@@ -31,9 +32,9 @@ class _ParentHomeState extends State<ParentHome> {
   @override
   void initState() {
     super.initState();
-    _links = sb.from('parent_links').stream(primaryKey: ['id']).eq('parent_id', sb.auth.currentUser!.id).listen((rows) { if (mounted) { setState(() { links = rows; loaded = true; }); } });
+    _links = liveStream('parent_links|parent_id=${myUid}', () => sb.from('parent_links').stream(primaryKey: ['id']).eq('parent_id', myUid)).listen((rows) { if (mounted) { setState(() { links = rows; loaded = true; }); } });
     // Row-level security only returns students whose link was approved, so this is exactly "my children" (live).
-    _kids = sb.from('students').stream(primaryKey: ['id']).listen((rows) {
+    _kids = liveStream('students', () => sb.from('students').stream(primaryKey: ['id'])).listen((rows) {
       if (!mounted) { return; }
       setState(() { kids..clear()..addAll({for (final r in rows) r['id'] as String: r}); });
       for (final r in rows) { _ensureSection(r['section_id'] as String?); }
@@ -46,13 +47,13 @@ class _ParentHomeState extends State<ParentHome> {
     if (id == null || sectionLabels.containsKey(id)) { return; }
     sectionLabels[id] = '';
     try {
-      final s = await sb.from('sections').select('name,grade_level').eq('id', id).single();
+      final s = (await cachedRow('section|$id', () => sb.from('sections').select('name,grade_level').eq('id', id).maybeSingle()))!;
       if (mounted) { setState(() => sectionLabels[id] = 'Grade ${s['grade_level']} · ${s['name']}'); }
     } catch (_) { sectionLabels.remove(id); }
   }
 
   Future<String?> _kidPhoto(String id) async {
-    try { final p = await sb.from('kid_photos').select('photo_url').eq('id', id).maybeSingle(); return p?['photo_url'] as String?; } catch (_) { return null; }
+    try { final p = await cachedRow('kidphoto|$id', () => sb.from('kid_photos').select('photo_url').eq('id', id).maybeSingle()); return p?['photo_url'] as String?; } catch (_) { return null; }
   }
 
   Future<void> _bind() async {

@@ -4,6 +4,7 @@ import '../core/messenger.dart';
 import '../core/session.dart';
 import '../widgets/avatar_picker.dart';
 import '../widgets/subjects_editor.dart';
+import '../core/offline.dart';
 
 /// Shown right after the first Google sign-in. Role -> form -> automatic ID.
 class OnboardingScreen extends StatefulWidget { const OnboardingScreen({super.key}); @override State<OnboardingScreen> createState() => _O(); }
@@ -11,7 +12,7 @@ class _O extends State<OnboardingScreen> {
   String? role;
   @override
   Widget build(BuildContext c) => Scaffold(
-        appBar: AppBar(title: const Text('Welcome'), actions: [TextButton(onPressed: () => sb.auth.signOut(), child: const Text('Sign out'))]),
+        appBar: AppBar(title: const Text('Welcome'), actions: [TextButton(onPressed: () => appSignOut(), child: const Text('Sign out'))]),
         body: role == null
             ? ListView(padding: const EdgeInsets.all(24), children: [
                 Text('I am a…', style: Theme.of(c).textTheme.headlineSmall), const SizedBox(height: 16),

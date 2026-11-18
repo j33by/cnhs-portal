@@ -6,6 +6,7 @@ import '../../widgets/family_home.dart';
 import '../../widgets/family_shell.dart';
 import '../../widgets/shared.dart';
 import '../profile_screen.dart';
+import '../../core/offline.dart';
 
 /// Student app: Home, Attendance, Grades, Alerts, Profile (bottom bar, same layout as the teacher app).
 /// Sign out is at the bottom of the Profile tab.
@@ -26,7 +27,7 @@ class _StudentHomeState extends State<StudentHome> {
   @override
   void initState() {
     super.initState();
-    _sub = sb.from('students').stream(primaryKey: ['id']).eq('id', widget.profile['id']).listen((rows) {
+    _sub = liveStream('students|id=${widget.profile['id']}', () => sb.from('students').stream(primaryKey: ['id']).eq('id', widget.profile['id'])).listen((rows) {
       if (rows.isEmpty || !mounted) { return; }
       setState(() => st = rows.first);
       _loadSection();
@@ -41,13 +42,13 @@ class _StudentHomeState extends State<StudentHome> {
     _sectionFor = id;
     if (id == null) { if (mounted) { setState(() => sectionLabel = null); } return; }
     try {
-      final s = await sb.from('sections').select('name,grade_level').eq('id', id).single();
+      final s = (await cachedRow('section|$id', () => sb.from('sections').select('name,grade_level').eq('id', id).maybeSingle()))!;
       if (mounted) { setState(() => sectionLabel = 'Grade ${s['grade_level']} · ${s['name']}'); }
     } catch (_) {}
   }
 
   Future<String?> _photo() async {
-    final p = await sb.from('profiles').select('photo_url').eq('id', widget.profile['id']).maybeSingle();
+    final p = await cachedRow('myphoto', () => sb.from('profiles').select('photo_url').eq('id', widget.profile['id']).maybeSingle());
     return p?['photo_url'] as String?;
   }
 

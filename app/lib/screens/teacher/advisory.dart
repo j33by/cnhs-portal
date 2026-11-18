@@ -5,6 +5,7 @@ import '../../widgets/shared.dart';
 import 'device_links.dart';
 import 'homeroom_tab.dart';
 import '../../widgets/keep_alive.dart';
+import '../../core/offline.dart';
 
 Future<String?> _ask(BuildContext c, String title, String label) async {
   final t = TextEditingController();
@@ -27,7 +28,7 @@ class _Students extends StatelessWidget {
   Widget build(BuildContext c) => Scaffold(
         floatingActionButton: FloatingActionButton(child: const Icon(Icons.person_add), onPressed: () async { final id = await _ask(c, 'Add student', 'Student ID'); if (id != null && c.mounted) _run(c, Api.post('/api/sections/$sid/students', {'student_no': id})); }),
         body: StreamBuilder<List<Map<String, dynamic>>>(
-          stream: sb.from('students').stream(primaryKey: ['id']).eq('section_id', sid).order('last_name'),
+          stream: liveStream('students|section_id=${sid}|o', () => sb.from('students').stream(primaryKey: ['id']).eq('section_id', sid).order('last_name')),
           builder: (c, s) => !s.hasData ? const Center(child: CircularProgressIndicator()) : ListView(children: [for (final x in s.data!) ListTile(
             title: Text('${x['last_name']}, ${x['first_name']}'), subtitle: Text('${x['student_no']}  ·  device #${x['biometric_id']}'),
             trailing: Row(mainAxisSize: MainAxisSize.min, children: [

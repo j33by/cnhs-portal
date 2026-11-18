@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../core/api.dart';
 import 'status.dart';
 import 'ui.dart';
+import '../core/offline.dart';
 
 ({IconData icon, Color color}) _look(Map<String, dynamic> n) {
   final data = n['data'] is Map ? n['data'] as Map : const {};
@@ -28,8 +29,8 @@ class NotificationsView extends StatefulWidget {
 }
 
 class _NotificationsViewState extends State<NotificationsView> {
-  late final Stream<List<Map<String, dynamic>>> _stream = sb.from('notifications').stream(primaryKey: ['id'])
-      .eq('user_id', sb.auth.currentUser!.id).order('created_at', ascending: false);
+  late final Stream<List<Map<String, dynamic>>> _stream = liveStream('notifications|user_id=${myUid}|o', () => sb.from('notifications').stream(primaryKey: ['id'])
+      .eq('user_id', myUid).order('created_at', ascending: false));
   Timer? _t;
   @override
   void dispose() { _t?.cancel(); super.dispose(); }
