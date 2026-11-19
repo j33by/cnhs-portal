@@ -149,7 +149,7 @@ class _SF extends State<_StudentForm> with _FormHelpers {
       final t = await cachedRows('teacher_names', () => sb.from('teacher_names').select('id,first_name,last_name'));
       teachers..clear()..addAll({for (final x in t) '${x['id']}': '${x['first_name']} ${x['last_name']}'});
       // sections with no subjects yet still need to be listed
-      final secs = await cachedRows('secs|$grade', () => sb.from('sections').select('id,name').eq('school_year_id', y['id']).eq('grade_level', grade).order('name'));
+      final secs = await cachedRows('secs|$grade', () => sb.from('sections').select('id,name').eq('school_year_id', y!['id']).eq('grade_level', grade).order('name'));
       if (mounted) { setState(() { offers = r; allSections = secs; loadingOffers = false; }); }
     } catch (_) { if (mounted) { setState(() => loadingOffers = false); } }
   }
