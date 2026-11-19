@@ -15,6 +15,7 @@ import 'class_students_tab.dart';
 import 'grades_tab.dart';
 import 'homeroom_tab.dart';
 import 'record_tab.dart';
+import '../student/room_screen.dart';
 
 String classKey(Map<String, dynamic> c) => c['kind'] == 'advisory' ? '${c['section_id']}|advisory' : '${c['section_id']}|${c['subject_id']}';
 String classTitle(Map<String, dynamic> c) => '${c['subject']} · Grade ${c['grade']} ${c['section']}';
@@ -193,7 +194,7 @@ class ClassScreen extends StatelessWidget {
         child: Scaffold(
           appBar: AppBar(
             title: Text(title, style: const TextStyle(fontSize: 16)),
-            actions: [PopupMenuButton<String>(
+            actions: [IconButton(tooltip: 'Room', icon: const Icon(Icons.meeting_room_outlined), onPressed: () => Navigator.push(c, MaterialPageRoute(builder: (_) => RoomScreen(sectionId: sectionId)))), PopupMenuButton<String>(
               onSelected: (v) async {
                 if (v == 'remove' && await removeClass(c, sectionId, subjectId, title)) { if (onRemoved != null) { onRemoved!(); } else if (c.mounted) { Navigator.pop(c); } }
               },

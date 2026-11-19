@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../core/api.dart';
 import '../core/messenger.dart';
 import '../core/offline.dart';
+import '../screens/student/student_post_composer.dart';
 import '../screens/teacher/post_composer.dart';
 import 'ui.dart';
 import '../core/img.dart';
@@ -14,6 +15,7 @@ const _cats = {
   'activity': ['Activity', Color(0xFF00796B)],
   'assignment': ['Assignment', Color(0xFF3949AB)],
   'urgent': ['Urgent', Color(0xFFC62828)],
+  'section': ['Section', Color(0xFF00796B)],
 };
 Color catColor(String? k) => (_cats[k]?[1] as Color?) ?? const Color(0xFF1B5E3B);
 String catLabel(String? k) => (_cats[k]?[0] as String?) ?? 'Announcement';
@@ -32,15 +34,52 @@ String _ago(DateTime t) {
 /// and can react or comment when the teacher allowed it.
 class FeedView extends StatefulWidget {
   final bool canPost;
-  const FeedView({super.key, this.canPost = false});
+  /// Student feed: filter chips (All / General / Subject / Section) and posting in the Section filter. [sectionId] = the student's section.
+  final bool student; final String? sectionId;
+  const FeedView({super.key, this.canPost = false, this.student = false, this.sectionId});
   @override
   State<FeedView> createState() => _FeedViewState();
 }
 
 class _FeedViewState extends State<FeedView> {
-  late final Stream<List<Map<String, dynamic>>> _posts = liveStream('posts|o|l', () => sb.from('posts').stream(primaryKey: ['id']).order('created_at', ascending: false).limit(60));
+  late final Stream<List<Map<String, dynamic>>> _posts = liveStream(widget.student ? 'posts|o|150' : 'posts|o|l', () => sb.from('posts').stream(primaryKey: ['id']).order('created_at', ascending: false).limit(widget.student ? 150 : 60));
   late final Stream<List<Map<String, dynamic>>> _mine = liveStream('post_reactions|user_id=$myUid', () => sb.from('post_reactions').stream(primaryKey: ['post_id', 'user_id']).eq('user_id', myUid));
   final _local = <String, String?>{};            // my reaction, shown at once while the server confirms
+  String filter = 'all';                         // student feed: all | general | subject | section
+
+  /// Which filter a post belongs to for THIS student: adviser homeroom posts and classmates' posts = section; subject teachers = subject; everything else = general.
+  String _bucket(Map<String, dynamic> p) {
+    if (p['section_post_of'] != null) { return 'section'; }
+    final k = p['kinds'] is Map ? (p['kinds'] as Map)[widget.sectionId] : null;
+    if (k == 'homeroom') { return 'section'; }
+    if (k == 'subject') { return 'subject'; }
+    return 'general';
+  }
+
+  Widget _filters(BuildContext c) {
+    const items = [['all', 'All', Icons.dynamic_feed_outlined], ['general', 'General', Icons.campaign_outlined], ['subject', 'Subject teachers', Icons.menu_book_outlined], ['section', 'My section', Icons.groups_outlined]];
+    return SizedBox(height: 52, child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.fromLTRB(12, 8, 12, 6), children: [
+      for (final it in items) Padding(padding: const EdgeInsets.only(right: 8), child: ChoiceChip(
+        showCheckmark: false, avatar: Icon(it[2] as IconData, size: 18), label: Text(it[1] as String), selected: filter == it[0], onSelected: (_) => setState(() => filter = it[0] as String))),
+    ]));
+  }
+
+  Widget _sectionComposer(BuildContext c) {
+    final cs = Theme.of(c).colorScheme;
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      InkWell(borderRadius: BorderRadius.circular(16), onTap: () => Navigator.push(c, MaterialPageRoute(builder: (_) => const StudentPostComposer())),
+        child: Container(padding: const EdgeInsets.fromLTRB(14, 12, 14, 12), decoration: BoxDecoration(color: cs.surface, borderRadius: BorderRadius.circular(16), border: Border.all(color: Theme.of(c).dividerColor.withValues(alpha: .5))),
+          child: Row(children: [
+            Icon(Icons.edit_outlined, color: cs.primary), const SizedBox(width: 12),
+            Expanded(child: Text('Share something with your section…', style: TextStyle(color: Theme.of(c).hintColor, fontSize: 15))),
+            Icon(Icons.add_photo_alternate_outlined, color: cs.primary),
+          ]))),
+      Padding(padding: const EdgeInsets.fromLTRB(4, 8, 4, 0), child: Row(children: [
+        Icon(Icons.lock_outline, size: 14, color: Theme.of(c).hintColor), const SizedBox(width: 5),
+        Expanded(child: Text('Only your classmates and your adviser can see posts here.', style: TextStyle(fontSize: 12, color: Theme.of(c).hintColor))),
+      ])),
+    ]);
+  }
 
   Future<void> _react(String postId, String? kind) async {
     setState(() => _local[postId] = kind);
@@ -57,25 +96,38 @@ class _FeedViewState extends State<FeedView> {
         body: StreamBuilder<List<Map<String, dynamic>>>(stream: _posts, builder: (c, ps) => StreamBuilder<List<Map<String, dynamic>>>(stream: _mine, builder: (c, ms) {
           if (!ps.hasData) { return const Center(child: CircularProgressIndicator()); }
           final mine = {for (final m in ms.data ?? const <Map<String, dynamic>>[]) '${m['post_id']}': '${m['kind']}'};
-          final posts = [...ps.data!]..sort((a, b) {
+          final useFilter = widget.student && widget.sectionId != null, inSection = useFilter && filter == 'section';
+          final posts = [...ps.data!.where((p) => !useFilter || filter == 'all' || _bucket(p) == filter)]..sort((a, b) {
               if ((a['pinned'] == true) != (b['pinned'] == true)) { return a['pinned'] == true ? -1 : 1; }
               return '${b['created_at']}'.compareTo('${a['created_at']}');
             });
-          if (posts.isEmpty) {
-            return EmptyState(icon: Icons.dynamic_feed_outlined, title: widget.canPost ? 'Nothing posted yet' : 'No posts yet',
+          final head = inSection ? 1 : 0;
+          Widget list;
+          if (posts.isEmpty && !inSection) {
+            list = EmptyState(icon: Icons.dynamic_feed_outlined, title: widget.canPost ? 'Nothing posted yet' : (useFilter && filter != 'all' ? 'No posts here yet' : 'No posts yet'),
                 message: widget.canPost ? 'Share an update or photos with your classes.' : 'Posts from your teachers show up here.');
+          } else {
+            list = Align(alignment: Alignment.topCenter, child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 680), child: ListView.separated(
+              padding: EdgeInsets.fromLTRB(12, 8, 12, widget.canPost ? 96 : 24), itemCount: posts.length + head + (inSection && posts.isEmpty ? 1 : 0), separatorBuilder: (_, __) => const SizedBox(height: 12),
+              itemBuilder: (c, i) {
+                if (head == 1 && i == 0) { return _sectionComposer(c); }
+                if (posts.isEmpty) { return Padding(padding: const EdgeInsets.only(top: 24), child: Center(child: Text('No posts in your section yet.\nBe the first to share something!', textAlign: TextAlign.center, style: TextStyle(color: Theme.of(c).hintColor)))); }
+                final p = posts[i - head], id = '${p['id']}';
+                return PostCard(key: ValueKey(id), post: p, moderator: widget.canPost, myReaction: _local.containsKey(id) ? _local[id] : mine[id], onReact: (k) => _react(id, k));
+              },
+            )));
           }
-          return Align(alignment: Alignment.topCenter, child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 680), child: ListView.separated(
-            padding: EdgeInsets.fromLTRB(12, 12, 12, widget.canPost ? 96 : 24), itemCount: posts.length, separatorBuilder: (_, __) => const SizedBox(height: 12),
-            itemBuilder: (c, i) { final p = posts[i], id = '${p['id']}'; return PostCard(key: ValueKey(id), post: p, myReaction: _local.containsKey(id) ? _local[id] : mine[id], onReact: (k) => _react(id, k)); },
-          )));
+          if (!useFilter) { return list; }
+          return Column(children: [_filters(c), Expanded(child: list)]);
         })),
       );
 }
 
 class PostCard extends StatefulWidget {
   final Map<String, dynamic> post; final String? myReaction; final ValueChanged<String?> onReact;
-  const PostCard({super.key, required this.post, required this.myReaction, required this.onReact});
+  /// A teacher who is the adviser can remove a student's section post (the server checks it again).
+  final bool moderator;
+  const PostCard({super.key, required this.post, required this.myReaction, required this.onReact, this.moderator = false});
   @override
   State<PostCard> createState() => _PostCardState();
 }
@@ -102,7 +154,7 @@ class _PostCardState extends State<PostCard> {
   Future<void> _menu(String v) async {
     try {
       if (v == 'pin') { await Api.patch('/api/posts/${p['id']}', {'pinned': p['pinned'] != true}); }
-      else if (v == 'edit') { if (mounted) { await Navigator.push(context, MaterialPageRoute(builder: (_) => PostComposer(existing: p))); } }
+      else if (v == 'edit') { if (mounted) { await Navigator.push(context, MaterialPageRoute(builder: (_) => p['section_post_of'] != null ? StudentPostComposer(existing: p) : PostComposer(existing: p))); } }
       else if (v == 'delete') {
         final ok = await showDialog<bool>(context: context, builder: (c) => AlertDialog(title: const Text('Delete this post?'), content: const Text('It disappears for everyone, together with its comments and reactions.'),
             actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Delete'))]));
@@ -126,9 +178,11 @@ class _PostCardState extends State<PostCard> {
       ])),
       Container(padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3), decoration: BoxDecoration(color: col.withValues(alpha: .12), borderRadius: BorderRadius.circular(8)),
           child: Text(catLabel(p['category'] as String?), style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: col))),
-      if (mineAuthor) PopupMenuButton<String>(
+      if (mineAuthor || (widget.moderator && p['section_post_of'] != null)) PopupMenuButton<String>(
         padding: EdgeInsets.zero, icon: const Icon(Icons.more_horiz), onSelected: _menu,
-        itemBuilder: (_) => [const PopupMenuItem(value: 'edit', child: Text('Edit')), PopupMenuItem(value: 'pin', child: Text(p['pinned'] == true ? 'Unpin' : 'Pin to top')), const PopupMenuItem(value: 'delete', child: Text('Delete'))],
+        itemBuilder: (_) => mineAuthor
+            ? [const PopupMenuItem(value: 'edit', child: Text('Edit')), if (p['section_post_of'] == null) PopupMenuItem(value: 'pin', child: Text(p['pinned'] == true ? 'Unpin' : 'Pin to top')), const PopupMenuItem(value: 'delete', child: Text('Delete'))]
+            : [const PopupMenuItem(value: 'delete', child: Text('Delete post'))],
       ),
     ]);
   }
@@ -186,7 +240,7 @@ class _PostCardState extends State<PostCard> {
             )),
           ])),
         ] else const SizedBox(height: 12),
-        if (showComments && allowC) CommentsSection(postId: '${p['id']}', postAuthorId: '${p['author_id']}'),
+        if (showComments && allowC) CommentsSection(postId: '${p['id']}', postAuthorId: '${p['author_id']}', moderator: widget.moderator && p['section_post_of'] != null),
       ]),
     );
   }
@@ -203,8 +257,8 @@ class _EmojiButton extends StatelessWidget {
 
 /// Comments of one post: loaded only while open, live, newest at the bottom.
 class CommentsSection extends StatefulWidget {
-  final String postId, postAuthorId;
-  const CommentsSection({super.key, required this.postId, required this.postAuthorId});
+  final String postId, postAuthorId; final bool moderator;
+  const CommentsSection({super.key, required this.postId, required this.postAuthorId, this.moderator = false});
   @override
   State<CommentsSection> createState() => _CommentsSectionState();
 }
@@ -224,7 +278,7 @@ class _CommentsSectionState extends State<CommentsSection> {
   }
 
   Future<void> _delete(Map<String, dynamic> m) async {
-    if (m['user_id'] != myUid && widget.postAuthorId != myUid) { return; }
+    if (m['user_id'] != myUid && widget.postAuthorId != myUid && !widget.moderator) { return; }
     final ok = await showDialog<bool>(context: context, builder: (c) => AlertDialog(title: const Text('Delete comment?'), actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Delete'))]));
     if (ok == true) { try { await Api.delete('/api/comments/${m['id']}'); } catch (e) { toastError(e); } }
   }

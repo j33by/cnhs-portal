@@ -3,6 +3,8 @@ import pathlib, re, sys
 plat = sys.argv[1]
 if plat == 'android':
     m = pathlib.Path('android/app/src/main/AndroidManifest.xml'); s = m.read_text()
+    if 'permission.RECORD_AUDIO' not in s:    # voice messages in the Room
+        s = s.replace('<application', '<uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <application', 1)
     if 'permission.INTERNET' not in s:        # release builds have NO internet permission by default
         s = s.replace('<application', '<uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>\n    <application', 1)
     if 'login-callback' not in s:             # Google sign-in returns to io.cnhs.portal://login-callback

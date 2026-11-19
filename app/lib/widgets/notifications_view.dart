@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../core/api.dart';
+import '../screens/student/chat_view.dart';
+import '../screens/student/messages_screen.dart';
 import 'status.dart';
 import 'ui.dart';
 import '../core/offline.dart';
@@ -17,6 +19,7 @@ import '../core/offline.dart';
     case 'bind': return (icon: Icons.link, color: Colors.teal);
     case 'feed': return (icon: Icons.campaign, color: Colors.teal);
     case 'class': return (icon: Icons.alarm, color: Colors.orange);
+    case 'chat': return (icon: n['data'] is Map && (n['data'] as Map)['thread_kind'] == 'group' ? Icons.forum : Icons.chat_bubble, color: Colors.deepPurple);
     case 'section': return (icon: Icons.groups, color: Colors.blue);
     default: return (icon: Icons.notifications, color: Colors.blueGrey);
   }
@@ -48,7 +51,7 @@ class _NotificationsViewState extends State<NotificationsView> {
 
   Widget _card(BuildContext c, Map<String, dynamic> n) {
     final look = _look(n), unread = n['read'] != true, cs = Theme.of(c).colorScheme, when = DateTime.parse(n['created_at']).toLocal();
-    return Padding(padding: const EdgeInsets.only(bottom: 8), child: SoftCard(
+    final card = Padding(padding: const EdgeInsets.only(bottom: 8), child: SoftCard(
       padding: EdgeInsets.zero, color: unread ? cs.primaryContainer.withValues(alpha: .35) : null, border: unread ? cs.primary.withValues(alpha: .5) : null,
       child: Padding(padding: const EdgeInsets.all(12), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         CircleAvatar(radius: 21, backgroundColor: look.color.withValues(alpha: .16), child: Icon(look.icon, color: look.color, size: 22)),
@@ -65,6 +68,7 @@ class _NotificationsViewState extends State<NotificationsView> {
         ])),
       ])),
     ));
+    return n['kind'] == 'chat' ? GestureDetector(behavior: HitTestBehavior.opaque, onTap: () => openChatAlert(c, n), child: card) : card;
   }
 
   @override
@@ -85,4 +89,11 @@ class _NotificationsViewState extends State<NotificationsView> {
           return Align(alignment: Alignment.topCenter, child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 760), child: ListView(padding: const EdgeInsets.fromLTRB(14, 0, 14, 28), children: items)));
         },
       );
+}
+
+/// Open the chat an alert is about (private chat, or the Group tab).
+void openChatAlert(BuildContext c, Map<String, dynamic> n) {
+  final d = n['data'] is Map ? n['data'] as Map : const {};
+  if (d['thread_kind'] == 'group') { Navigator.push(c, MaterialPageRoute(builder: (_) => const MessagesScreen(initialTab: 1))); }
+  else if (d['thread_id'] != null) { Navigator.push(c, MaterialPageRoute(builder: (_) => ChatScreen(threadId: '${d['thread_id']}', name: '${d['sender_name'] ?? 'Chat'}', photo: d['sender_photo'] as String?))); }
 }

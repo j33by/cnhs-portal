@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../student/room_screen.dart';
 import '../../core/api.dart';
 import '../../core/messenger.dart';
 import '../../widgets/shared.dart';
@@ -18,7 +19,7 @@ class SectionScreen extends StatelessWidget {
   final Map<String, dynamic> section; const SectionScreen({super.key, required this.section});
   @override
   Widget build(BuildContext c) => DefaultTabController(length: 3, child: Scaffold(
-        appBar: AppBar(title: Text('Advisory · Grade ${section['grade_level']} ${section['name']}'), bottom: const TabBar(tabs: [Tab(text: 'Students'), Tab(text: 'Schedule'), Tab(text: 'Homeroom')])),
+        appBar: AppBar(title: Text('Advisory · Grade ${section['grade_level']} ${section['name']}'), actions: [IconButton(tooltip: 'Room', icon: const Icon(Icons.meeting_room_outlined), onPressed: () => Navigator.push(c, MaterialPageRoute(builder: (_) => RoomScreen(sectionId: '${section['id']}'))))], bottom: const TabBar(tabs: [Tab(text: 'Students'), Tab(text: 'Schedule'), Tab(text: 'Homeroom')])),
         body: TabBarView(children: [KeepTabAlive(child: _Students(section['id'])), KeepTabAlive(child: _Schedule(section['id'])), KeepTabAlive(child: HomeroomTab(sectionId: section['id']))])));
 }
 
