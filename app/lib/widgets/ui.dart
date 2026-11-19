@@ -1,4 +1,3 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../core/messenger.dart';
@@ -6,6 +5,7 @@ import '../core/offline.dart';
 import '../core/outbox.dart';
 import 'sync_ui.dart';
 import 'package:intl/intl.dart';
+import '../core/img.dart';
 
 /// School photo banner with a soft dark overlay so white text stays readable. Used behind the Home and Profile headers.
 class SchoolBackdrop extends StatelessWidget {
@@ -39,7 +39,7 @@ class HeroHeader extends StatelessWidget {
         const SizedBox(height: 12),
         Container(
           padding: const EdgeInsets.all(3), decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
-          child: CircleAvatar(radius: 52, backgroundImage: photo != null ? CachedNetworkImageProvider(photo!) : null,
+          child: CircleAvatar(radius: 52, backgroundImage: photo != null ? CachedNetImage(photo!) : null,
               child: photo == null ? Text(name.isEmpty ? '?' : name[0].toUpperCase(), style: const TextStyle(fontSize: 38)) : null),
         ),
         const SizedBox(height: 12),

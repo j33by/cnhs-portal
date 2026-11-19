@@ -1,8 +1,8 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../core/api.dart';
+import '../core/img.dart';
 
 /// Uploads to Supabase Storage bucket "avatars" under <userId>/profile.jpg and returns the public URL.
 class AvatarPicker extends StatefulWidget {
@@ -27,7 +27,7 @@ class _S extends State<AvatarPicker> {
   }
   @override
   Widget build(BuildContext c) => GestureDetector(onTap: _pick, child: Stack(alignment: Alignment.bottomRight, children: [
-        CircleAvatar(radius: 48, backgroundImage: url != null ? CachedNetworkImageProvider(url!) : null, child: url == null ? const Icon(Icons.person, size: 48) : null),
+        CircleAvatar(radius: 48, backgroundImage: url != null ? CachedNetImage(url!) : null, child: url == null ? const Icon(Icons.person, size: 48) : null),
         busy ? const CircularProgressIndicator() : const CircleAvatar(radius: 14, child: Icon(Icons.camera_alt, size: 16)),
       ]));
 }

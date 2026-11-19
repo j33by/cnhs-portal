@@ -1,4 +1,3 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../core/api.dart';
@@ -6,6 +5,7 @@ import '../core/messenger.dart';
 import '../core/offline.dart';
 import '../screens/teacher/post_composer.dart';
 import 'ui.dart';
+import '../core/img.dart';
 
 const kReactions = {'like': '👍', 'love': '❤️', 'care': '🤗', 'wow': '😮', 'clap': '👏'};
 const _cats = {
@@ -114,7 +114,7 @@ class _PostCardState extends State<PostCard> {
   Widget _header(BuildContext c) {
     final col = catColor(p['category'] as String?), photo = p['author_photo'] as String?, name = '${p['author_name']}';
     return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      CircleAvatar(radius: 21, backgroundImage: photo != null ? CachedNetworkImageProvider(photo) : null, child: photo == null ? Text(name.isEmpty ? '?' : name[0].toUpperCase()) : null),
+      CircleAvatar(radius: 21, backgroundImage: photo != null ? CachedNetImage(photo) : null, child: photo == null ? Text(name.isEmpty ? '?' : name[0].toUpperCase()) : null),
       const SizedBox(width: 10),
       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
@@ -257,7 +257,7 @@ class _CommentsSectionState extends State<CommentsSection> {
   Widget _comment(BuildContext c, Map<String, dynamic> m) {
     final photo = m['author_photo'] as String?, name = '${m['author_name']}', role = m['author_role'] == 'teacher' ? 'Teacher' : m['author_role'] == 'parent' ? 'Parent' : '';
     return Padding(padding: const EdgeInsets.only(bottom: 10), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      CircleAvatar(radius: 15, backgroundImage: photo != null ? CachedNetworkImageProvider(photo) : null, child: photo == null ? Text(name.isEmpty ? '?' : name[0].toUpperCase(), style: const TextStyle(fontSize: 12)) : null),
+      CircleAvatar(radius: 15, backgroundImage: photo != null ? CachedNetImage(photo) : null, child: photo == null ? Text(name.isEmpty ? '?' : name[0].toUpperCase(), style: const TextStyle(fontSize: 12)) : null),
       const SizedBox(width: 8),
       Flexible(child: GestureDetector(onLongPress: () => _delete(m), child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -284,7 +284,7 @@ class PostImages extends StatelessWidget {
   Widget _img(BuildContext c, int i, {BoxFit fit = BoxFit.cover, int extra = 0}) => GestureDetector(
         onTap: () => Navigator.push(c, MaterialPageRoute(builder: (_) => ImageViewer(urls: urls, start: i))),
         child: Stack(fit: StackFit.expand, children: [
-          CachedNetworkImage(imageUrl: urls[i], fit: fit, placeholder: (_, __) => Container(color: Theme.of(c).colorScheme.surfaceContainerHighest), errorWidget: (_, __, ___) => Container(color: Theme.of(c).colorScheme.surfaceContainerHighest, child: const Icon(Icons.broken_image_outlined))),
+          Image(image: CachedNetImage(urls[i]), fit: fit, frameBuilder: (_, child, frame, sync) => frame == null && !sync ? Container(color: Theme.of(c).colorScheme.surfaceContainerHighest) : child, errorBuilder: (_, __, ___) => Container(color: Theme.of(c).colorScheme.surfaceContainerHighest, child: const Icon(Icons.broken_image_outlined))),
           if (extra > 0) Container(color: Colors.black54, alignment: Alignment.center, child: Text('+$extra', style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold))),
         ]),
       );
@@ -325,7 +325,7 @@ class _ImageViewerState extends State<ImageViewer> {
         appBar: AppBar(backgroundColor: Colors.black, foregroundColor: Colors.white, title: Text('${i + 1} / ${widget.urls.length}', style: const TextStyle(fontSize: 15))),
         body: PageView.builder(
           controller: pc, itemCount: widget.urls.length, onPageChanged: (x) => setState(() => i = x),
-          itemBuilder: (_, x) => InteractiveViewer(minScale: 1, maxScale: 4, child: Center(child: CachedNetworkImage(imageUrl: widget.urls[x], fit: BoxFit.contain, placeholder: (_, __) => const CircularProgressIndicator(), errorWidget: (_, __, ___) => const Icon(Icons.broken_image_outlined, color: Colors.white)))),
+          itemBuilder: (_, x) => InteractiveViewer(minScale: 1, maxScale: 4, child: Center(child: Image(image: CachedNetImage(widget.urls[x]), fit: BoxFit.contain, frameBuilder: (_, child, frame, sync) => frame == null && !sync ? const CircularProgressIndicator() : child, errorBuilder: (_, __, ___) => const Icon(Icons.broken_image_outlined, color: Colors.white)))),
         ),
       );
 }

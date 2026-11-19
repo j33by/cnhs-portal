@@ -60,9 +60,9 @@ begin
     uid := pg_temp.seed_user(t.id, t.email, t.first || ' ' || t.last);
     uids := uids || jsonb_build_object(t.k, uid);
     insert into profiles (id, role, email, full_name, onboarded) values (uid, 'teacher', t.email, t.first || ' ' || t.last, true)
-      on conflict (id) do update set role = 'teacher', full_name = excluded.full_name, onboarded = true;
+      on conflict (id) do update set role = 'teacher', onboarded = true;                 -- an existing account keeps its own name and photo
     insert into teachers (id, teacher_no, first_name, last_name, grade_levels) values (uid, t.no, t.first, t.last, t.g)
-      on conflict (id) do update set first_name = excluded.first_name, last_name = excluded.last_name, grade_levels = excluded.grade_levels;
+      on conflict (id) do update set grade_levels = (select array_agg(distinct g order by g) from unnest(teachers.grade_levels || excluded.grade_levels) g);   -- names are never overwritten
     insert into teacher_subjects (teacher_id, code, name)
       select uid, s->>'code', s->>'name' from jsonb_array_elements(t.s) s
       on conflict (teacher_id, code) do update set name = excluded.name;

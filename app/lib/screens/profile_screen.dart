@@ -6,6 +6,7 @@ import '../widgets/avatar_picker.dart';
 import '../widgets/ui.dart';
 import '../core/offline.dart';
 import '../core/outbox.dart';
+import '../core/img.dart';
 
 class _Field {
   final String key, label; final bool req, multiline; final TextInputType? type;
@@ -116,6 +117,8 @@ class _ProfileTabState extends State<ProfileTab> {
         Container(padding: const EdgeInsets.all(3), decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle), child: AvatarPicker(url: prof!['photo_url'] as String?, onUploaded: _photo)),
         const SizedBox(height: 12),
         Text(name, textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
+        ValueListenableBuilder<String?>(valueListenable: ImgCache.lastError, builder: (_, e, __) => e == null ? const SizedBox.shrink()
+          : Padding(padding: const EdgeInsets.only(top: 6), child: Text('Photo problem: $e', textAlign: TextAlign.center, style: const TextStyle(color: Colors.white70, fontSize: 11)))),
         const SizedBox(height: 6),
         Pill(role == 'student' ? 'Student' : role == 'teacher' ? 'Teacher' : 'Parent / Guardian', Colors.white, icon: Icons.verified_user),
         if (id != null) ...[

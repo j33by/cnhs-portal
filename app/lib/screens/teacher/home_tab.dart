@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../../widgets/ui.dart';
@@ -10,6 +9,7 @@ import '../../core/teacher_data.dart';
 import '../../widgets/colors.dart';
 import '../../widgets/shared.dart';
 import '../../core/offline.dart';
+import '../../core/img.dart';
 
 const _dayShort = ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
 
@@ -77,7 +77,7 @@ class _HomeTabState extends State<HomeTab> {
         const SizedBox(height: 12),
         Container(
           padding: const EdgeInsets.all(3), decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
-          child: CircleAvatar(radius: 52, backgroundImage: (photo ?? widget.profile['photo_url']) != null ? CachedNetworkImageProvider((photo ?? widget.profile['photo_url']) as String) : null,
+          child: CircleAvatar(radius: 52, backgroundImage: (photo ?? widget.profile['photo_url']) != null ? CachedNetImage((photo ?? widget.profile['photo_url']) as String) : null,
               child: (photo ?? widget.profile['photo_url']) == null ? Text(name.isEmpty ? '?' : name[0].toUpperCase(), style: const TextStyle(fontSize: 38)) : null),
         ),
         const SizedBox(height: 12),

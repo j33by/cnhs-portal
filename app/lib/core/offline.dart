@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'api.dart';
 import 'config.dart';
+import 'img.dart';
 
 typedef JRows = List<Map<String, dynamic>>;
 
@@ -119,6 +120,6 @@ Future<Map<String, dynamic>?> cachedRow(String key, Future<Map<String, dynamic>?
 
 /// Sign out for real: forget the saved identity and the saved data, even with no internet.
 Future<void> appSignOut() async {
-  await Identity.clear(); await LocalCache.wipe();
+  await Identity.clear(); await LocalCache.wipe(); await ImgCache.wipe();
   try { await sb.auth.signOut(scope: SignOutScope.local); } catch (_) {}
 }

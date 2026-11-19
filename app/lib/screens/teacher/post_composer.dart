@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../core/api.dart';
@@ -7,6 +6,7 @@ import '../../core/messenger.dart';
 import '../../core/offline.dart';
 import '../../core/teacher_data.dart';
 import '../../widgets/feed_view.dart';
+import '../../core/img.dart';
 
 /// Write a post (or edit one): text, photos, category, who can see it, and whether people may react or comment.
 class PostComposer extends StatefulWidget {
@@ -184,7 +184,7 @@ class _PostComposerState extends State<PostComposer> {
           TextField(controller: text, minLines: 6, maxLines: null, maxLength: 3000, autofocus: !editing, textCapitalization: TextCapitalization.sentences,
               decoration: const InputDecoration(hintText: 'Write something…', border: InputBorder.none, counterText: ''), style: const TextStyle(fontSize: 17, height: 1.4)),
           if (picked.isNotEmpty || oldImages.isNotEmpty) SizedBox(height: 90, child: ListView(scrollDirection: Axis.horizontal, children: [
-            for (var i = 0; i < oldImages.length; i++) _thumb(CachedNetworkImage(imageUrl: oldImages[i], fit: BoxFit.cover), () => setState(() => oldImages.removeAt(i))),
+            for (var i = 0; i < oldImages.length; i++) _thumb(Image(image: CachedNetImage(oldImages[i]), fit: BoxFit.cover), () => setState(() => oldImages.removeAt(i))),
             for (var i = 0; i < picked.length; i++) _thumb(Image.file(picked[i], fit: BoxFit.cover), () => setState(() => picked.removeAt(i))),
           ])),
         ]))),

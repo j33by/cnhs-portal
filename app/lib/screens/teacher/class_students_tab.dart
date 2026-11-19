@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/services.dart';
 import '../../core/api.dart';
 import '../../core/messenger.dart';
 import 'class_common.dart';
 import 'device_links.dart';
 import '../../core/offline.dart';
+import '../../core/img.dart';
 
 /// Everyone enrolled in the section (boys first, then girls, alphabetical), live. Search, photos, details, absences in this subject.
 class ClassStudentsTab extends StatefulWidget {
@@ -63,7 +63,7 @@ class _ClassStudentsState extends State<ClassStudentsTab> {
     Widget row(IconData i, String k, String v) => ListTile(dense: true, contentPadding: EdgeInsets.zero, leading: Icon(i, size: 20), title: Text(k), subtitle: Text(v.isEmpty ? '—' : v));
     showDialog(context: context, builder: (c2) => AlertDialog(
       title: Row(children: [
-        CircleAvatar(radius: 24, backgroundImage: photos[x['id']] != null ? CachedNetworkImageProvider(photos[x['id']]!) : null, child: photos[x['id']] == null ? Text('${x['first_name']}'.isEmpty ? '?' : '${x['first_name']}'[0]) : null),
+        CircleAvatar(radius: 24, backgroundImage: photos[x['id']] != null ? CachedNetImage(photos[x['id']]!) : null, child: photos[x['id']] == null ? Text('${x['first_name']}'.isEmpty ? '?' : '${x['first_name']}'[0]) : null),
         const SizedBox(width: 12), Expanded(child: Text(_name(x), style: const TextStyle(fontSize: 17))),
       ]),
       content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -149,7 +149,7 @@ class _ClassStudentsState extends State<ClassStudentsTab> {
                     itemBuilder: (c, i) {
                       final x = list[i]; final a = absences[x['id']] ?? 0; final photo = photos[x['id']];
                       return ListTile(
-                        leading: CircleAvatar(backgroundImage: photo != null ? CachedNetworkImageProvider(photo) : null, child: photo == null ? Text('${x['first_name']}'.isEmpty ? '?' : '${x['first_name']}'[0]) : null),
+                        leading: CircleAvatar(backgroundImage: photo != null ? CachedNetImage(photo) : null, child: photo == null ? Text('${x['first_name']}'.isEmpty ? '?' : '${x['first_name']}'[0]) : null),
                         title: Text(_name(x)), subtitle: Text('ID ${x['student_no']}  ·  ${x['sex'] == 'M' ? 'Male' : 'Female'}${x['age'] != null ? '  ·  ${x['age']} yrs' : ''}'),
                         trailing: widget.isAdviser
                             ? Row(mainAxisSize: MainAxisSize.min, children: [
