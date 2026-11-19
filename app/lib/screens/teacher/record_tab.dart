@@ -56,7 +56,7 @@ class _RecordTabState extends State<RecordTab> {
       final k0 = '${widget.sectionId}|${widget.subjectId}';
       final r = await Future.wait<Rows>([
         cachedRows('rc|$k0|$term', () => sb.from('record_columns').select().match({...base, 'term': term, 'is_deleted': false}).order('col_date').order('created_at')),
-        loadStudents(widget.sectionId),
+        loadStudents(widget.sectionId, widget.subjectId),
         cachedRows('caabs|$k0', () => sb.from('class_attendance').select('student_id').match({...base, 'status': 'A'})),
         cachedRows('cpol|$k0', () => sb.from('class_policy').select().match(base)),
       ]);

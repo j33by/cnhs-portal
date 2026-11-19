@@ -72,7 +72,7 @@ class _NotificationsViewState extends State<NotificationsView> {
         stream: _stream,
         builder: (c, s) {
           if (!s.hasData) return const Center(child: CircularProgressIndicator());
-          if (s.data!.isEmpty) return const EmptyState(icon: Icons.notifications_none, title: 'No notifications yet', message: 'Attendance, grades and class announcements show up here.');
+          if (s.data!.isEmpty) return const EmptyState(icon: Icons.notifications_none, title: 'No notifications yet', message: 'Updates will show up here.');
           final unread = s.data!.where((n) => n['read'] != true).length;
           if (unread > 0 && TickerMode.of(c)) { _scheduleRead(); }              // TickerMode is off while this tab is hidden
           final items = <Widget>[];

@@ -93,15 +93,27 @@ app.post('/api/onboarding/student', wrap(async (q, r) => {
   const missing = [['first_name', 'first name'], ['last_name', 'last name'], ['age', 'age'], ['address', 'address'], ['grade_level', 'grade level']].filter(([k]) => !b[k] || (typeof b[k] === 'string' && !b[k].trim())).map(x => x[1]);
   if (missing.length) throw bad('Missing: ' + missing.join(', '));
   const y = await curYear(), id = q.user.id, no = await nextId(sb, 'student', y.label);
-  let section_id = null;
+  let section_id = null, extras = [];
   if (b.section_id) { const { data: sec } = await sb.from('sections').select('id,grade_level').eq('id', b.section_id).maybeSingle(); if (sec && sec.grade_level === b.grade_level) section_id = sec.id; }
+  else if (Array.isArray(b.subjects) && b.subjects.length) {        // picked subjects: placed in the section that covers most of them, the rest follow as extras
+    const picks = b.subjects.slice(0, 24).filter(p => p?.section_id && p?.subject_id), good = [];
+    for (const p of picks) {
+      const { data: ss } = await sb.from('section_subjects').select('section_id,subject_id,sections(grade_level,school_year_id)').match({ section_id: p.section_id, subject_id: p.subject_id }).maybeSingle();
+      if (ss && ss.sections.grade_level === b.grade_level && ss.sections.school_year_id === y.id) good.push({ section_id: ss.section_id, subject_id: ss.subject_id });
+    }
+    const count = new Map(); for (const g of good) count.set(g.section_id, (count.get(g.section_id) || 0) + 1);
+    const home = [...count].sort((a, c) => c[1] - a[1])[0]?.[0];
+    if (home) { section_id = home; extras = good.filter(g => g.section_id !== home); }
+  }
   await sb.from('profiles').upsert({ id, role: 'student', email: q.user.email, full_name: `${b.first_name} ${b.last_name}`, photo_url: b.photo_url, onboarded: false });
   await sb.from('students').delete().eq('id', id);
   const { error } = await sb.from('students').insert({ id, student_no: no, first_name: b.first_name, middle_name: b.middle_name, last_name: b.last_name, age: b.age, sex: b.sex,
     birthdate: b.birthdate || null, address: b.address, lrn: b.lrn || null, grade_level: b.grade_level, section_id, guardian_name: b.guardian_name, guardian_contact: b.guardian_contact, biometric_id: await freeBioId() });
   if (error) throw error;
+  if (extras.length) await sb.from('student_subjects').insert(extras.map(e => ({ student_id: id, ...e })));
   await sb.from('profiles').update({ onboarded: true }).eq('id', id);
-  r.json({ student_no: no, section_matched: !!section_id });   // unmatched section => adviser adds them
+  let placed = null; if (section_id) { const { data: sec } = await sb.from('sections').select('grade_level,name').eq('id', section_id).single(); placed = `Grade ${sec.grade_level} · ${sec.name}`; }
+  r.json({ student_no: no, section_matched: !!section_id, placed, extras: extras.length });   // no section => adviser adds them later
 }));
 app.post('/api/onboarding/parent', wrap(async (q, r) => {
   if (!q.body.full_name) throw bad('Name is required');

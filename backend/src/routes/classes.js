@@ -13,8 +13,18 @@ module.exports = function mount(app, { sb, wrap, bad, teacherOnly, curYear }) {
     const { data } = await sb.from('section_subjects').select('teacher_id,sections(school_year_id,grade_level,name),subjects(code,name)').match({ section_id, subject_id }).maybeSingle();
     if (!data || data.teacher_id !== uid) throw bad('You are not assigned to this class', 403); return data;
   };
-  const classStudents = async section_id => (await sb.from('students').select('id,student_no,first_name,last_name,sex').eq('section_id', section_id).eq('status', 'enrolled')
-    .order('sex', { ascending: false }).order('last_name').order('first_name')).data || [];
+  const SCOLS = 'id,student_no,first_name,last_name,sex';
+  const byName = (a, b) => String(b.sex || '').localeCompare(String(a.sex || '')) || String(a.last_name).localeCompare(String(b.last_name)) || String(a.first_name).localeCompare(String(b.first_name));
+  // Everyone in the section, plus (when a subject is given) students from other sections who enrolled in that subject.
+  const classStudents = async (section_id, subject_id) => {
+    const base = (await sb.from('students').select(SCOLS).eq('section_id', section_id).eq('status', 'enrolled').order('sex', { ascending: false }).order('last_name').order('first_name')).data || [];
+    if (!subject_id) return base;
+    const { data: ex } = await sb.from('student_subjects').select('student_id').match({ section_id, subject_id });
+    const have = new Set(base.map(x => x.id)), ids = (ex || []).map(x => x.student_id).filter(id => !have.has(id));
+    if (!ids.length) return base;
+    const { data: more } = await sb.from('students').select(SCOLS).in('id', ids).eq('status', 'enrolled');
+    return [...base, ...(more || [])].sort(byName);
+  };
   const lockedTerm = async (section_id, subject_id, term) => ((await sb.from('grades').select('id', { count: 'exact', head: true }).match({ section_id, subject_id, term, released: true })).count || 0) > 0;
   const checkDate = d => { if (!validDate(d) || d > phToday()) throw bad('Choose a valid date that is not in the future.'); if (!isWeekday(d)) throw bad('Classes are held Monday to Friday. Pick a weekday.'); };
   // ---- Offline queue support -------------------------------------------------------------------------------------
@@ -158,7 +168,7 @@ module.exports = function mount(app, { sb, wrap, bad, teacherOnly, curYear }) {
   }
   app.post('/api/class-attendance', teacherOnly, idem('class_attendance', async (q, r) => {
     const { section_id, subject_id, dates } = q.body, queued = q.body.queued === true;   // dates: [{date, entries:[{student_id,status,remarks,base}]}]
-    const c = await myClass(q.user.id, section_id, subject_id); const ok = new Set((await classStudents(section_id)).map(s => s.id)); let n = 0;
+    const c = await myClass(q.user.id, section_id, subject_id); const ok = new Set((await classStudents(section_id, subject_id)).map(s => s.id)); let n = 0;
     if (!dates?.length) throw bad('Nothing to save. Add a date column first.');
     const seen = new Set(); for (const d of dates) { checkDate(d.date); if (seen.has(d.date)) throw bad(`${d.date} appears twice. Keep one column per date.`); seen.add(d.date); }
     const skipped = [], versions = [], stamp = new Date().toISOString();
@@ -188,7 +198,7 @@ module.exports = function mount(app, { sb, wrap, bad, teacherOnly, curYear }) {
       const recent = d.date >= new Date(Date.now() + 8 * 36e5 - 2 * 864e5).toISOString().slice(0, 10);       // families hear only about recent days that changed
       const changed = rows.filter(x => ['A', 'L', 'E'].includes(x.status) && was.get(x.student_id)?.status !== x.status);
       if (recent && changed.length) {
-        const ppl = await parentsOfMany(sb, changed.map(x => x.student_id)), byId = new Map((await classStudents(section_id)).map(s => [s.id, s]));
+        const ppl = await parentsOfMany(sb, changed.map(x => x.student_id)), byId = new Map((await classStudents(section_id, subject_id)).map(s => [s.id, s]));
         for (const x of changed) { const s = byId.get(x.student_id); if (!s) continue;
           await notify(sb, [s.id, ...(ppl.get(s.id) || [])], { kind: 'attendance', title: `${s.first_name} is ${x.status === 'A' ? 'absent' : x.status === 'L' ? 'late' : 'excused'} in ${c.subjects.name}`,
             body: `Marked by the subject teacher for ${d.date}.`, data: { student_id: s.id, date: d.date, status: x.status, subject_id } }); }
@@ -234,7 +244,7 @@ module.exports = function mount(app, { sb, wrap, bad, teacherOnly, curYear }) {
       if (ex) { out.skipped++; continue; }                                       // already announced: do not spam
       const row = { section_id: t.section_id, subject_id: t.subject_id, cancel_date: date, reason, message, label: `Grade ${c.sections.grade_level} · ${c.sections.name}`, subject_name: c.subjects.name, created_by: q.user.id };
       const { data: ins, error } = await sb.from('class_cancellations').insert(row).select().single(); if (error) throw error;
-      out.students += date <= today ? await applyCancellation(sb, ins) : (await classStudents(t.section_id)).length;
+      out.students += date <= today ? await applyCancellation(sb, ins) : (await classStudents(t.section_id, t.subject_id)).length;
       out.notified += await announce(sb, ins); out.classes++;
     }
     r.json(out);
@@ -271,7 +281,7 @@ module.exports = function mount(app, { sb, wrap, bad, teacherOnly, curYear }) {
     const { section_id, subject_id, term, scores } = q.body, queued = q.body.queued === true;   // scores: [{column_id, student_id, score|null, base}]
     const c = await myClass(q.user.id, section_id, subject_id);
     const { data: cols } = await sb.from('record_columns').select('id,max_score').match({ section_id, subject_id, term, school_year_id: c.sections.school_year_id, is_deleted: false });
-    const max = new Map(cols.map(x => [x.id, +x.max_score])), studs = new Set((await classStudents(section_id)).map(s => s.id));
+    const max = new Map(cols.map(x => [x.id, +x.max_score])), studs = new Set((await classStudents(section_id, subject_id)).map(s => s.id));
     const skipped = [], versions = [], stamp = new Date().toISOString();
     let list = scores;
     if (!queued) {                                        // online: all or nothing, as before
@@ -309,7 +319,7 @@ module.exports = function mount(app, { sb, wrap, bad, teacherOnly, curYear }) {
     const { data: cols } = await sb.from('record_columns').select('*').match({ section_id, subject_id, term, school_year_id: yid, is_deleted: false });
     const { data: sc } = cols.length ? await sb.from('record_scores').select('*').in('column_id', cols.map(x => x.id)) : { data: [] };
     const scores = {}; for (const s of sc) (scores[s.column_id] ||= {})[s.student_id] = +s.score;
-    const rows = []; for (const s of await classStudents(section_id)) { const p = recPercent(cols, scores, s.id); if (p == null) continue;
+    const rows = []; for (const s of await classStudents(section_id, subject_id)) { const p = recPercent(cols, scores, s.id); if (p == null) continue;
       rows.push({ student_id: s.id, subject_id, section_id, school_year_id: yid, term, grade: Math.round((tr ? transmute(p) : p) * 100) / 100, entered_by: q.user.id, updated_at: new Date().toISOString() }); }
     if (rows.length) { const { error } = await sb.from('grades').upsert(rows, { onConflict: 'student_id,subject_id,school_year_id,term' }); if (error) throw error; }
     r.json({ saved: rows.length });
@@ -319,7 +329,7 @@ module.exports = function mount(app, { sb, wrap, bad, teacherOnly, curYear }) {
   app.post('/api/grades', teacherOnly, wrap(async (q, r) => {
     const { section_id, subject_id, term, grades } = q.body; const c = await myClass(q.user.id, section_id, subject_id);   // grades: [{student_id, grade|null}]
     if (await lockedTerm(section_id, subject_id, term)) throw bad(`Term ${term} grades are released. Unrelease them before editing.`);
-    const studs = new Set((await classStudents(section_id)).map(s => s.id));
+    const studs = new Set((await classStudents(section_id, subject_id)).map(s => s.id));
     if (grades.some(g => !studs.has(g.student_id) || (g.grade != null && !(g.grade >= 0 && g.grade <= 100)))) throw bad('Grades must be numbers from 0 to 100. Nothing was saved.');
     const yid = c.sections.school_year_id;
     const sets = grades.filter(g => g.grade != null).map(g => ({ student_id: g.student_id, subject_id, section_id, school_year_id: yid, term, grade: Math.round(g.grade * 100) / 100, entered_by: q.user.id, updated_at: new Date().toISOString() }));

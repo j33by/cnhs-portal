@@ -47,12 +47,12 @@ class _FamilyHomeState extends State<FamilyHome> {
       ),
       Align(alignment: Alignment.topCenter, child: Padding(padding: const EdgeInsets.fromLTRB(16, 20, 16, 0), child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 900), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         ...widget.extra,
-        SectionFeed(sectionId: widget.sectionId, builder: (c, slots, loaded) {
+        SectionFeed(sectionId: widget.sectionId, studentId: widget.studentId, builder: (c, slots, loaded) {
           if (!loaded) { return const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator())); }
           return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             if (widget.sectionId == null) SoftCard(child: Row(children: [
               Icon(Icons.hourglass_top, color: Theme.of(c).colorScheme.primary), const SizedBox(width: 12),
-              const Expanded(child: Text('The schedule appears once an adviser adds the student to a section.')),
+              const Expanded(child: Text('Your schedule appears once you are added to a section.')),
             ]))
             else ScheduleSection(slots: slots, title: widget.parent ? "Child's schedule" : 'My schedule'),
             const SizedBox(height: 24),

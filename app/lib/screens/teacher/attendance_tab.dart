@@ -53,7 +53,7 @@ class _AttState extends State<AttendanceTab> {
       final from = ymd.format(month), to = ymd.format(DateTime(month.year, month.month + 1, 0));
       final k0 = '${widget.sectionId}|${widget.subjectId}';
       final r = await Future.wait<Rows>([
-        loadStudents(widget.sectionId),
+        loadStudents(widget.sectionId, widget.subjectId),
         cachedRows('ca|$k0|$from', () => sb.from('class_attendance').select('student_id,att_date,status,remarks,updated_at').match(base).gte('att_date', from).lte('att_date', to).order('att_date')),
         cachedRows('caabs|$k0', () => sb.from('class_attendance').select('student_id').match({...base, 'status': 'A'})),
         cachedRows('cpol|$k0', () => sb.from('class_policy').select().match(base)),

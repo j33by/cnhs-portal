@@ -63,7 +63,7 @@ class _FeedViewState extends State<FeedView> {
             });
           if (posts.isEmpty) {
             return EmptyState(icon: Icons.dynamic_feed_outlined, title: widget.canPost ? 'Nothing posted yet' : 'No posts yet',
-                message: widget.canPost ? 'Share an announcement, a reminder or photos with your sections.' : 'Announcements from your teachers will show up here.');
+                message: widget.canPost ? 'Share an update or photos with your classes.' : 'Posts from your teachers show up here.');
           }
           return Align(alignment: Alignment.topCenter, child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 680), child: ListView.separated(
             padding: EdgeInsets.fromLTRB(12, 12, 12, widget.canPost ? 96 : 24), itemCount: posts.length, separatorBuilder: (_, __) => const SizedBox(height: 12),

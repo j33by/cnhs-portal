@@ -135,7 +135,7 @@ class _ProfileTabState extends State<ProfileTab> {
           ),
         ],
         const SizedBox(height: 6),
-        Text('Tap the photo to change it', style: TextStyle(color: Colors.white.withValues(alpha: .75), fontSize: 11.5)),
+        const SizedBox.shrink(),
       ]),
     );
   }

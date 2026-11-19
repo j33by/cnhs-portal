@@ -24,7 +24,7 @@ class _GradesState extends State<GradesTab> {
     try {
       final yid = await currentYearId();
       final r = await Future.wait<Rows>([
-        loadStudents(widget.sectionId),
+        loadStudents(widget.sectionId, widget.subjectId),
         sb.from('grades').select('student_id,grade,released').match({'section_id': widget.sectionId, 'subject_id': widget.subjectId, 'school_year_id': yid, 'term': term}),
       ]);
       studs = r[0];

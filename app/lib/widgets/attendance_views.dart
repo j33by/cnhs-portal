@@ -308,7 +308,7 @@ class _SubjectAttendanceBodyState extends State<SubjectAttendanceBody> {
   }
 
   @override
-  Widget build(BuildContext c) => SectionFeed(sectionId: widget.sectionId, builder: (c, slots, loaded) => StreamBuilder<List<Map<String, dynamic>>>(stream: _stream, builder: (c, s) {
+  Widget build(BuildContext c) => SectionFeed(sectionId: widget.sectionId, studentId: widget.studentId, builder: (c, slots, loaded) => StreamBuilder<List<Map<String, dynamic>>>(stream: _stream, builder: (c, s) {
         if (!s.hasData || !loaded) { return const Center(child: CircularProgressIndicator()); }
         final rows = s.data!, now = DateTime.now(), today = _ymd.format(now);
         final todayBy = <String, Map<String, dynamic>>{for (final r in rows.where((r) => '${r['att_date']}' == today)) '${r['subject_id']}': r};
@@ -337,7 +337,6 @@ class _SubjectAttendanceBodyState extends State<SubjectAttendanceBody> {
           const SizedBox(height: 18), const SectionTitle('Every subject', icon: Icons.menu_book),
           if (ids.isEmpty) const SoftCard(child: Padding(padding: EdgeInsets.all(10), child: Center(child: Text('No subjects yet'))))
           else for (final id in ids) _subjectCard(c, id, groups[id]!, teacherOf(id)),
-          Padding(padding: const EdgeInsets.only(top: 6), child: Text('Subject teachers mark attendance in their own class. A day marked absent at the gate can still be marked present in a subject, and a "No class" day never counts as an absence.', style: TextStyle(fontSize: 12, color: Theme.of(c).hintColor))),
         ])));
       }));
 

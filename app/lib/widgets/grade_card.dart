@@ -103,7 +103,7 @@ class _GradesViewState extends State<GradesView> {
           if (s.hasError) { return const EmptyState(icon: Icons.cloud_off, title: 'Could not load grades', message: 'Check your connection and try again.'); }
           if (!s.hasData) { return const Center(child: CircularProgressIndicator()); }
           final rows = s.data!.where((g) => g['released'] == true).toList();
-          if (rows.isEmpty) { return const EmptyState(icon: Icons.menu_book_outlined, title: 'No grades released yet', message: 'Your report card appears here as soon as your teachers release the grades.'); }
+          if (rows.isEmpty) { return const EmptyState(icon: Icons.menu_book_outlined, title: 'No grades yet', message: 'Released grades appear here.'); }
           return ListenableBuilder(listenable: Lookup.i, builder: (c, _) {
             final by = <String, Map<int, num>>{};
             for (final g in rows) { (by[Lookup.i.subject(g['subject_id'] as String?)] ??= {})[g['term'] as int] = g['grade'] as num; }
@@ -123,7 +123,7 @@ class _GradesViewState extends State<GradesView> {
                     decoration: BoxDecoration(color: Colors.amber.withValues(alpha: .2), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.amber.shade700)),
                     child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.workspace_premium, color: Colors.amber.shade800), const SizedBox(width: 8), Text(honor, style: TextStyle(fontWeight: FontWeight.bold, color: Colors.amber.shade900))]),
                   ),
-                  if (!allDone) const Padding(padding: EdgeInsets.fromLTRB(16, 0, 16, 12), child: Text('A final grade is shown once all four quarters of a subject are released.', style: TextStyle(fontSize: 12))),
+                  if (!allDone) const Padding(padding: EdgeInsets.fromLTRB(16, 0, 16, 12), child: Text('Final grade shows after all four quarters.', style: TextStyle(fontSize: 12))),
                 ])),
               ),
               const SizedBox(height: 14),

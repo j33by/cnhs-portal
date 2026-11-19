@@ -8,12 +8,18 @@ const pretty = date => {
   const d = new Date(date + 'T00:00:00Z').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', timeZone: 'UTC' });
   return date === today ? `today (${d})` : date === tomorrow ? `tomorrow (${d})` : d;
 };
-const enrolled = async (sb, section_id) => (await sb.from('students').select('id,first_name').eq('section_id', section_id).eq('status', 'enrolled')).data || [];
+const enrolled = async (sb, section_id, subject_id) => {                          // the section + students of other sections who enrolled in this subject
+  const base = (await sb.from('students').select('id,first_name').eq('section_id', section_id).eq('status', 'enrolled')).data || [];
+  const { data: ex } = await sb.from('student_subjects').select('student_id').match({ section_id, subject_id });
+  const have = new Set(base.map(x => x.id)), ids = (ex || []).map(x => x.student_id).filter(id => !have.has(id));
+  if (!ids.length) return base;
+  return [...base, ...((await sb.from('students').select('id,first_name').in('id', ids).eq('status', 'enrolled')).data || [])];
+};
 
 // Writes the N marks. Only used for today or past dates (future dates are applied on the day itself by applyDueCancellations).
 async function applyCancellation(sb, c) {
   const { data: yr } = await sb.from('school_years').select('id').eq('is_current', true).single();
-  const studs = await enrolled(sb, c.section_id);
+  const studs = await enrolled(sb, c.section_id, c.subject_id);
   const rows = studs.map(s => ({ student_id: s.id, section_id: c.section_id, subject_id: c.subject_id, school_year_id: yr.id, att_date: c.cancel_date,
     status: 'N', remarks: (c.reason || 'No class').slice(0, 120), source: 'no_class', marked_by: c.created_by, updated_at: new Date().toISOString() }));
   for (let i = 0; i < rows.length; i += 200) { const { error } = await sb.from('class_attendance').upsert(rows.slice(i, i + 200), { onConflict: 'student_id,subject_id,att_date' }); if (error) throw error; }
@@ -29,7 +35,7 @@ async function applyDueCancellations(sb) {
 }
 
 async function announce(sb, c) {                                    // c: cancellation row. Returns how many people were notified.
-  const studs = await enrolled(sb, c.section_id), parents = await parentsOfMany(sb, studs.map(s => s.id));
+  const studs = await enrolled(sb, c.section_id, c.subject_id), parents = await parentsOfMany(sb, studs.map(s => s.id));
   const why = [c.reason, c.message].filter(Boolean).join(' · '), when = pretty(c.cancel_date); let people = 0;
   await notify(sb, studs.map(s => s.id), { kind: 'no_class', title: `No ${c.subject_name} class`, body: `${c.label}: no class ${when}.${why ? ' ' + why + '.' : ''} You will not be marked absent.`, data: { subject_id: c.subject_id, section_id: c.section_id, date: c.cancel_date } });
   people += studs.length;
@@ -43,7 +49,7 @@ async function resume(sb, c) {                                      // teacher c
   await sb.from('class_attendance').delete().match({ section_id: c.section_id, subject_id: c.subject_id, att_date: c.cancel_date, status: 'N' });
   await sb.from('class_cancellations').delete().eq('id', c.id);
   if (c.cancel_date < phToday()) return 0;
-  const studs = await enrolled(sb, c.section_id), parents = await parentsOfMany(sb, studs.map(s => s.id));
+  const studs = await enrolled(sb, c.section_id, c.subject_id), parents = await parentsOfMany(sb, studs.map(s => s.id));
   await notify(sb, [...studs.map(s => s.id), ...[...parents.values()].flat()], { kind: 'no_class', title: `${c.subject_name} class is back on`, body: `${c.label}: the no-class notice for ${pretty(c.cancel_date)} was cancelled. Class will proceed as scheduled.`, data: { subject_id: c.subject_id, date: c.cancel_date } });
   return studs.length;
 }

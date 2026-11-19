@@ -14,51 +14,73 @@ final _ymd = DateFormat('yyyy-MM-dd');
 /// Live weekly schedule of ONE section, with subject + teacher names and "No class" notices already applied.
 /// Each slot: the schedules row + subject, teacher, cancelled (bool), cancel_reason, is_today, date.
 class SectionFeed extends StatefulWidget {
-  final String? sectionId;
+  final String? sectionId; final String? studentId;       // studentId: also show classes the student took in OTHER sections
   final Widget Function(BuildContext c, List<Map<String, dynamic>> slots, bool loaded) builder;
-  const SectionFeed({super.key, required this.sectionId, required this.builder});
+  const SectionFeed({super.key, required this.sectionId, this.studentId, required this.builder});
   @override
   State<SectionFeed> createState() => _SectionFeedState();
 }
 
 class _SectionFeedState extends State<SectionFeed> {
-  List<Map<String, dynamic>> rows = [], cancels = [];
+  final rowsBy = <String, List<Map<String, dynamic>>>{}, cancelBy = <String, List<Map<String, dynamic>>>{};
+  final subs = <String, List<StreamSubscription<dynamic>>>{};
+  List<Map<String, dynamic>> extras = [];
   bool loaded = false;
-  StreamSubscription<dynamic>? _a, _b;
+  StreamSubscription<dynamic>? _x;
 
   @override
-  void initState() { super.initState(); _subscribe(); }
+  void initState() { super.initState(); _start(); }
   @override
   void didUpdateWidget(SectionFeed old) {
     super.didUpdateWidget(old);
-    if (old.sectionId != widget.sectionId) { _unsubscribe(); rows = []; cancels = []; loaded = false; _subscribe(); }
+    if (old.sectionId != widget.sectionId || old.studentId != widget.studentId) { _stop(); loaded = false; extras = []; rowsBy.clear(); cancelBy.clear(); _start(); }
   }
   @override
-  void dispose() { _unsubscribe(); super.dispose(); }
+  void dispose() { _stop(); super.dispose(); }
 
-  void _unsubscribe() { _a?.cancel(); _b?.cancel(); _a = null; _b = null; }
-  void _subscribe() {
-    final id = widget.sectionId;
-    if (id == null) { loaded = true; return; }
-    _a = liveStream('schedules|section_id=${id}', () => sb.from('schedules').stream(primaryKey: ['id']).eq('section_id', id)).listen((r) { if (mounted) { setState(() { rows = r; loaded = true; }); } }, onError: (_) {});
-    _b = liveStream('class_cancellations|section_id=${id}', () => sb.from('class_cancellations').stream(primaryKey: ['id']).eq('section_id', id)).listen((r) { if (mounted) { setState(() => cancels = r); } }, onError: (_) {});
+  void _stop() { _x?.cancel(); _x = null; for (final l in subs.values) { for (final s in l) { s.cancel(); } } subs.clear(); }
+  void _start() {
+    final sid = widget.studentId;
+    if (sid != null) {
+      _x = liveStream('student_subjects|student_id=$sid', () => sb.from('student_subjects').stream(primaryKey: ['student_id', 'section_id', 'subject_id']).eq('student_id', sid)).listen((r) { if (mounted) { extras = r; _sync(); setState(() {}); } }, onError: (_) {});
+    }
+    _sync();
+  }
+
+  Set<String> get _ids => {if (widget.sectionId != null) widget.sectionId!, for (final e in extras) e['section_id'] as String};
+
+  void _sync() {                                   // one schedule + one no-class stream per section the student has classes in
+    final want = _ids;
+    for (final id in subs.keys.where((k) => !want.contains(k)).toList()) { for (final s in subs.remove(id)!) { s.cancel(); } rowsBy.remove(id); cancelBy.remove(id); }
+    for (final id in want) {
+      if (subs.containsKey(id)) { continue; }
+      subs[id] = [
+        liveStream('schedules|section_id=$id', () => sb.from('schedules').stream(primaryKey: ['id']).eq('section_id', id)).listen((r) { if (mounted) { setState(() { rowsBy[id] = r; loaded = true; }); } }, onError: (_) {}),
+        liveStream('class_cancellations|section_id=$id', () => sb.from('class_cancellations').stream(primaryKey: ['id']).eq('section_id', id)).listen((r) { if (mounted) { setState(() => cancelBy[id] = r); } }, onError: (_) {}),
+      ];
+    }
+    if (want.isEmpty) { loaded = true; }
   }
 
   List<Map<String, dynamic>> _slots() {
     final now = DateTime.now(), today = DateTime(now.year, now.month, now.day);
-    final cmap = <String, Map<String, dynamic>>{for (final c in cancels) '${c['cancel_date']}|${c['subject_id']}': c};
+    final mine = {for (final e in extras) '${e['section_id']}|${e['subject_id']}'};
+    final cmap = <String, Map<String, dynamic>>{for (final l in cancelBy.values) for (final c in l) '${c['cancel_date']}|${c['section_id']}|${c['subject_id']}': c};
     DateTime nextDate(int dow) {
       var d = today;
       for (var i = 0; i < 7; i++) { if (d.weekday == dow) { return d; } d = d.add(const Duration(days: 1)); }
       return today;
     }
     final out = <Map<String, dynamic>>[];
-    for (final r in rows) {
-      final d = nextDate(r['day_of_week'] as int), c = cmap['${_ymd.format(d)}|${r['subject_id']}'];
-      out.add({
-        ...r, 'subject': Lookup.i.subject(r['subject_id'] as String?), 'teacher': Lookup.i.teacher(r['teacher_id'] as String?),
-        'cancelled': c != null, 'cancel_reason': c?['reason'], 'cancel_message': c?['message'], 'is_today': d == today, 'date': d,
-      });
+    for (final e in rowsBy.entries) {
+      for (final r in e.value) {
+        if (e.key != widget.sectionId && !mine.contains('${r['section_id']}|${r['subject_id']}')) { continue; }
+        final d = nextDate(r['day_of_week'] as int), c = cmap['${_ymd.format(d)}|${r['section_id']}|${r['subject_id']}'];
+        out.add({
+          ...r, 'subject': Lookup.i.subject(r['subject_id'] as String?), 'teacher': Lookup.i.teacher(r['teacher_id'] as String?),
+          'cancelled': c != null, 'cancel_reason': c?['reason'], 'cancel_message': c?['message'], 'is_today': d == today, 'date': d,
+        });
+      }
     }
     out.sort((a, b) { final x = (a['day_of_week'] as int).compareTo(b['day_of_week'] as int); return x != 0 ? x : '${a['start_time']}'.compareTo('${b['start_time']}'); });
     return out;

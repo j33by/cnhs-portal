@@ -7,7 +7,6 @@ import '../../core/messenger.dart';
 import '../../core/offline.dart';
 import '../../core/teacher_data.dart';
 import '../../widgets/feed_view.dart';
-import '../../widgets/ui.dart';
 
 /// Write a post (or edit one): text, photos, category, who can see it, and whether people may react or comment.
 class PostComposer extends StatefulWidget {
@@ -102,68 +101,106 @@ class _PostComposerState extends State<PostComposer> {
     if (mounted) { setState(() => busy = false); }
   }
 
-  Widget _label(String t) => Padding(padding: const EdgeInsets.only(top: 20, bottom: 8), child: Text(t, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)));
+  // ---- audience: one short pill on the screen, the full picker in a sheet
+  String _audienceText() {
+    if (editing) { return '${widget.existing!['audience'] ?? ''}'; }
+    if (sel.isEmpty) { return 'Choose audience'; }
+    final by = _sections(), parts = <String>[];
+    for (final t in sel) {
+      final p = t.split('|');
+      if (p[0] == 'g') { parts.add('Grade ${p[1]}'); continue; }
+      final s = by.values.expand((l) => l).firstWhere((x) => x.id == p[1], orElse: () => _Sec('', 0, '?'));
+      parts.add(p[0] == 'sub' ? '${s.name} · ${s.subjects[p[2]] ?? ''}' : p[0] == 'h' ? '${s.name} homeroom' : s.name);
+    }
+    return parts.length > 2 ? '${parts.take(2).join(', ')} +${parts.length - 2}' : parts.join(', ');
+  }
+
+  void _pickAudience() {
+    if (editing) { return; }
+    showModalBottomSheet<void>(context: context, isScrollControlled: true, showDragHandle: true, builder: (_) => StatefulBuilder(builder: (c, set) {
+      void toggle(String k, bool v) { set(() {}); setState(() { v ? sel.add(k) : sel.remove(k); }); }
+      return ListenableBuilder(listenable: TeacherData.i, builder: (c, _) {
+        final by = _sections(), grades = {...by.keys, ...extraGrades}.toList()..sort();
+        return SafeArea(child: ConstrainedBox(constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(c).height * .8), child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Padding(padding: const EdgeInsets.fromLTRB(20, 0, 20, 8), child: Row(children: [Expanded(child: Text('Who can see this', style: Theme.of(c).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold))), TextButton(onPressed: sel.isEmpty ? null : () { set(() {}); setState(sel.clear); }, child: const Text('Clear'))])),
+          Flexible(child: ListView(padding: const EdgeInsets.fromLTRB(20, 0, 20, 8), shrinkWrap: true, children: [
+            if (by.isEmpty) const Padding(padding: EdgeInsets.all(16), child: Text('Add a class first.')),
+            if (grades.isNotEmpty) ...[
+              Text('Grade level', style: TextStyle(fontSize: 12, color: Theme.of(c).hintColor)), const SizedBox(height: 6),
+              Wrap(spacing: 8, runSpacing: 4, children: [for (final g in grades) FilterChip(label: Text('Grade $g'), selected: sel.contains('g|$g'), onSelected: (v) => toggle('g|$g', v))]),
+            ],
+            for (final g in by.keys.toList()..sort()) ...[
+              const SizedBox(height: 16), Text('Grade $g', style: TextStyle(fontSize: 12, color: Theme.of(c).hintColor)),
+              for (final s in by[g]!) Padding(padding: const EdgeInsets.only(top: 6), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                SizedBox(width: 78, child: Padding(padding: const EdgeInsets.only(top: 8), child: Text(s.name, style: const TextStyle(fontWeight: FontWeight.w600)))),
+                Expanded(child: Wrap(spacing: 6, runSpacing: 2, children: [
+                  FilterChip(visualDensity: VisualDensity.compact, label: const Text('All'), selected: sel.contains('s|${s.id}'), onSelected: (v) => toggle('s|${s.id}', v)),
+                  for (final e in s.subjects.entries) FilterChip(visualDensity: VisualDensity.compact, label: Text(e.value), selected: sel.contains('sub|${s.id}|${e.key}'), onSelected: (v) => toggle('sub|${s.id}|${e.key}', v)),
+                  if (s.adviser) FilterChip(visualDensity: VisualDensity.compact, avatar: const Icon(Icons.star_rounded, size: 16), label: const Text('Homeroom'), selected: sel.contains('h|${s.id}'), onSelected: (v) => toggle('h|${s.id}', v)),
+                ])),
+              ])),
+            ],
+          ])),
+          Padding(padding: const EdgeInsets.fromLTRB(20, 4, 20, 8), child: FilledButton(onPressed: () => Navigator.pop(c), style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)), child: Text(sel.isEmpty ? 'Done' : 'Done · ${sel.length} selected'))),
+        ])));
+      });
+    }));
+  }
+
+  void _options() => showModalBottomSheet<void>(context: context, showDragHandle: true, builder: (_) => StatefulBuilder(builder: (c, set) {
+        Widget sw(String t, bool v, ValueChanged<bool> f) => SwitchListTile(title: Text(t), value: v, onChanged: (x) { set(() {}); setState(() => f(x)); });
+        return SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          sw('Reactions', allowReactions, (x) => allowReactions = x),
+          sw('Comments', allowComments, (x) => allowComments = x),
+          sw('Pin to top', pinned, (x) => pinned = x),
+          if (!editing) sw('Notify students and parents', notifyPeople, (x) => notifyPeople = x),
+          const SizedBox(height: 8),
+        ]));
+      }));
 
   Widget _thumb(Widget img, VoidCallback remove) => Padding(padding: const EdgeInsets.only(right: 8), child: Stack(children: [
-        ClipRRect(borderRadius: BorderRadius.circular(12), child: SizedBox(width: 88, height: 88, child: img)),
+        ClipRRect(borderRadius: BorderRadius.circular(12), child: SizedBox(width: 84, height: 84, child: img)),
         Positioned(top: 4, right: 4, child: GestureDetector(onTap: remove, child: Container(padding: const EdgeInsets.all(3), decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle), child: const Icon(Icons.close, size: 14, color: Colors.white)))),
       ]));
 
-  Widget _audience(BuildContext c) {
-    if (editing) { return SoftCard(child: Row(children: [const Icon(Icons.visibility_outlined, size: 18), const SizedBox(width: 10), Expanded(child: Text('${widget.existing!['audience'] ?? ''}')), ])); }
-    return ListenableBuilder(listenable: TeacherData.i, builder: (c, _) {
-      final by = _sections(), grades = {...by.keys, ...extraGrades}.toList()..sort();
-      if (by.isEmpty) { return const SoftCard(child: Text('Add a class first. You can only post to sections you teach or advise.')); }
-      return SoftCard(padding: const EdgeInsets.all(14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('Whole grade level', style: TextStyle(fontSize: 12, color: Theme.of(c).hintColor)),
-        const SizedBox(height: 6),
-        Wrap(spacing: 8, runSpacing: 4, children: [for (final g in grades) FilterChip(label: Text('Grade $g'), selected: sel.contains('g|$g'), onSelected: (v) => setState(() { v ? sel.add('g|$g') : sel.remove('g|$g'); }))]),
-        for (final g in by.keys.toList()..sort()) ...[
-          const Divider(height: 22),
-          Text('Grade $g', style: const TextStyle(fontWeight: FontWeight.w700)),
-          for (final s in by[g]!) Padding(padding: const EdgeInsets.only(top: 8), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            SizedBox(width: 84, child: Padding(padding: const EdgeInsets.only(top: 8), child: Text(s.name, style: const TextStyle(fontWeight: FontWeight.w600)))),
-            Expanded(child: Wrap(spacing: 6, runSpacing: 2, children: [
-              FilterChip(visualDensity: VisualDensity.compact, label: const Text('Whole section'), selected: sel.contains('s|${s.id}'), onSelected: (v) => setState(() { v ? sel.add('s|${s.id}') : sel.remove('s|${s.id}'); })),
-              for (final e in s.subjects.entries) FilterChip(visualDensity: VisualDensity.compact, label: Text(e.value), selected: sel.contains('sub|${s.id}|${e.key}'), onSelected: (v) => setState(() { v ? sel.add('sub|${s.id}|${e.key}') : sel.remove('sub|${s.id}|${e.key}'); })),
-              if (s.adviser) FilterChip(visualDensity: VisualDensity.compact, avatar: const Icon(Icons.star_rounded, size: 16), label: const Text('Homeroom'), selected: sel.contains('h|${s.id}'), onSelected: (v) => setState(() { v ? sel.add('h|${s.id}') : sel.remove('h|${s.id}'); })),
-            ])),
-          ])),
-        ],
-        const SizedBox(height: 4),
-      ]));
-    });
-  }
+  bool get _customOptions => !allowReactions || !allowComments || pinned || (!editing && !notifyPeople);
 
   @override
-  Widget build(BuildContext c) => Scaffold(
-        appBar: AppBar(
-          title: Text(editing ? 'Edit post' : 'New post'),
-          actions: [Padding(padding: const EdgeInsets.only(right: 10), child: FilledButton(onPressed: busy ? null : _submit, child: busy ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : Text(editing ? 'Save' : 'Post')))],
-        ),
-        body: Align(alignment: Alignment.topCenter, child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 680), child: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 40), children: [
-          TextField(controller: text, minLines: 5, maxLines: 12, maxLength: 3000, textCapitalization: TextCapitalization.sentences,
-              decoration: const InputDecoration(hintText: 'What do you want to share with your students?', border: InputBorder.none, counterText: ''), style: const TextStyle(fontSize: 16, height: 1.4)),
-          SizedBox(height: 92, child: ListView(scrollDirection: Axis.horizontal, children: [
+  Widget build(BuildContext c) {
+    final col = catColor(category);
+    return Scaffold(
+      appBar: AppBar(
+        leading: IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)), title: Text(editing ? 'Edit post' : 'New post'),
+        actions: [Padding(padding: const EdgeInsets.only(right: 10), child: FilledButton(onPressed: busy ? null : _submit, child: busy ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : Text(editing ? 'Save' : 'Post')))],
+      ),
+      body: Align(alignment: Alignment.topCenter, child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 680), child: Column(children: [
+        Padding(padding: const EdgeInsets.fromLTRB(16, 4, 16, 0), child: Row(children: [
+          const CircleAvatar(radius: 20, child: Icon(Icons.person)), const SizedBox(width: 10),
+          Expanded(child: Align(alignment: Alignment.centerLeft, child: ActionChip(
+            avatar: Icon(Icons.group_outlined, size: 18, color: sel.isEmpty && !editing ? Theme.of(c).colorScheme.error : null), label: Text(_audienceText(), overflow: TextOverflow.ellipsis),
+            onPressed: editing ? null : _pickAudience, side: BorderSide(color: sel.isEmpty && !editing ? Theme.of(c).colorScheme.error : Theme.of(c).dividerColor)))),
+        ])),
+        Expanded(child: SingleChildScrollView(padding: const EdgeInsets.symmetric(horizontal: 16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          TextField(controller: text, minLines: 6, maxLines: null, maxLength: 3000, autofocus: !editing, textCapitalization: TextCapitalization.sentences,
+              decoration: const InputDecoration(hintText: 'Write something…', border: InputBorder.none, counterText: ''), style: const TextStyle(fontSize: 17, height: 1.4)),
+          if (picked.isNotEmpty || oldImages.isNotEmpty) SizedBox(height: 90, child: ListView(scrollDirection: Axis.horizontal, children: [
             for (var i = 0; i < oldImages.length; i++) _thumb(CachedNetworkImage(imageUrl: oldImages[i], fit: BoxFit.cover), () => setState(() => oldImages.removeAt(i))),
             for (var i = 0; i < picked.length; i++) _thumb(Image.file(picked[i], fit: BoxFit.cover), () => setState(() => picked.removeAt(i))),
-            if (!editing && picked.length + oldImages.length < 6) InkWell(borderRadius: BorderRadius.circular(12), onTap: _addPhotos, child: Container(width: 88, height: 88, decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: Theme.of(c).dividerColor)),
-                child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.add_photo_alternate_outlined, color: Theme.of(c).colorScheme.primary), const SizedBox(height: 4), const Text('Photos', style: TextStyle(fontSize: 12))]))),
-          ])),
-          _label('Type'),
-          Wrap(spacing: 8, runSpacing: 4, children: [for (final k in const ['announcement', 'reminder', 'activity', 'assignment', 'urgent']) ChoiceChip(
-            label: Text(catLabel(k)), selected: category == k, selectedColor: catColor(k).withValues(alpha: .18), onSelected: (_) => setState(() => category = k))]),
-          _label('Visible to'),
-          _audience(c),
-          _label('Options'),
-          SoftCard(padding: EdgeInsets.zero, child: Column(children: [
-            SwitchListTile(title: const Text('Allow reactions'), value: allowReactions, onChanged: (v) => setState(() => allowReactions = v)),
-            const Divider(height: 1),
-            SwitchListTile(title: const Text('Allow comments'), subtitle: const Text('Students and parents can comment'), value: allowComments, onChanged: (v) => setState(() => allowComments = v)),
-            const Divider(height: 1),
-            SwitchListTile(title: const Text('Pin to the top'), value: pinned, onChanged: (v) => setState(() => pinned = v)),
-            if (!editing) ...[const Divider(height: 1), SwitchListTile(title: const Text('Notify students and parents'), subtitle: const Text('Sends an alert to everyone who can see it'), value: notifyPeople, onChanged: (v) => setState(() => notifyPeople = v))],
           ])),
         ]))),
-      );
+        const Divider(height: 1),
+        SafeArea(top: false, child: Padding(padding: const EdgeInsets.fromLTRB(8, 4, 8, 4), child: Row(children: [
+          IconButton(tooltip: 'Photos', onPressed: editing ? null : _addPhotos, icon: Icon(Icons.image_outlined, color: editing ? null : Theme.of(c).colorScheme.primary)),
+          PopupMenuButton<String>(
+            tooltip: 'Type', onSelected: (k) => setState(() => category = k),
+            itemBuilder: (_) => [for (final k in const ['announcement', 'reminder', 'activity', 'assignment', 'urgent']) PopupMenuItem(value: k, child: Row(children: [Icon(Icons.circle, size: 10, color: catColor(k)), const SizedBox(width: 10), Text(catLabel(k))]))],
+            child: Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7), decoration: BoxDecoration(color: col.withValues(alpha: .12), borderRadius: BorderRadius.circular(20)),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.circle, size: 9, color: col), const SizedBox(width: 7), Text(catLabel(category), style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: col)), Icon(Icons.arrow_drop_down, size: 18, color: col)])),
+          ),
+          const Spacer(),
+          IconButton(tooltip: 'Options', onPressed: _options, icon: Badge(isLabelVisible: _customOptions, smallSize: 8, child: const Icon(Icons.tune))),
+        ]))),
+      ]))),
+    );
+  }
 }
