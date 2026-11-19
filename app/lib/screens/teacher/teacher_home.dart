@@ -1,6 +1,13 @@
 import '../../widgets/ui.dart';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'dart:async';
+import '../../core/api.dart';
+import '../../core/chat_data.dart';
+import '../../core/messenger.dart';
+import '../../core/offline.dart';
+import '../../widgets/notifications_view.dart';
+import '../../widgets/chat_actions.dart';
 import '../../core/streams.dart';
 import '../../core/teacher_data.dart';
 import '../../core/usb_sync.dart';
@@ -33,10 +40,33 @@ class _TeacherHomeState extends State<TeacherHome> {
   final visited = <int>{0};
   late final Stream<int> unread = unreadStream(), pending = pendingBindsStream();
 
+  StreamSubscription<dynamic>? _alerts;
+  final _shown = <String>{}; bool _primed = false;
+
   @override
-  void initState() { super.initState(); usb.start(); TeacherData.i.start(widget.profile['id'] as String); }
+  void initState() { super.initState(); usb.start(); TeacherData.i.start(widget.profile['id'] as String); _watchAlerts(); }
+
+  /// Pop-up banner when a new chat message arrives while the app is open (also kept in the Alerts tab).
+  void _watchAlerts() {
+    _alerts = liveStream('notifications|user_id=$myUid|o', () => sb.from('notifications').stream(primaryKey: ['id']).eq('user_id', myUid).order('created_at', ascending: false)).listen((rows) {
+      final fresh = [for (final n in rows) if (n['kind'] == 'chat' && n['read'] != true && _shown.add('${n['id']}|${n['created_at']}')) n];
+      if (!_primed) { _primed = true; return; }
+      if (fresh.isEmpty || !mounted) { return; }
+      final n = fresh.first, d = n['data'] is Map ? n['data'] as Map : const {};
+      if (d['thread_id'] != null && d['thread_id'] == ChatData.viewing) { return; }
+      messengerKey.currentState?..hideCurrentSnackBar()..showSnackBar(SnackBar(
+        behavior: SnackBarBehavior.floating, duration: const Duration(seconds: 5),
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('${n['title']}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700)),
+          Text('${n['body']}', maxLines: 2, overflow: TextOverflow.ellipsis),
+        ]),
+        action: SnackBarAction(label: 'Open', onPressed: () { if (mounted) { openChatAlert(context, n); } }),
+      ));
+    });
+  }
+
   @override
-  void dispose() { usb.dispose(); TeacherData.i.stop(); super.dispose(); }
+  void dispose() { _alerts?.cancel(); usb.dispose(); TeacherData.i.stop(); super.dispose(); }
 
   void _openClass(Map<String, dynamic> cls) => Navigator.push(context, MaterialPageRoute(builder: (_) => ClassScreen.from(cls)));
 
@@ -64,7 +94,7 @@ class _TeacherHomeState extends State<TeacherHome> {
     return Scaffold(
       appBar: AppBar(
         title: Text(tabs[i].label),
-        actions: [if (desktop) ListenableBuilder(listenable: usb, builder: (_, __) => Padding(padding: const EdgeInsets.only(right: 12), child: Tooltip(message: usb.message,
+        actions: [const ChatActions(teacher: true), if (desktop) ListenableBuilder(listenable: usb, builder: (_, __) => Padding(padding: const EdgeInsets.only(right: 12), child: Tooltip(message: usb.message,
             child: Icon(Icons.usb, color: usb.state == UsbState.none ? Colors.grey : usb.state == UsbState.error ? Colors.red : Colors.greenAccent))))],
       ),
       body: desktop || MediaQuery.sizeOf(c).width >= 900

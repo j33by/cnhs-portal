@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../core/api.dart';
 import '../screens/student/chat_view.dart';
 import '../screens/student/messages_screen.dart';
+import '../screens/teacher/teacher_messages.dart';
 import 'status.dart';
 import 'ui.dart';
 import '../core/offline.dart';
@@ -19,7 +20,7 @@ import '../core/offline.dart';
     case 'bind': return (icon: Icons.link, color: Colors.teal);
     case 'feed': return (icon: Icons.campaign, color: Colors.teal);
     case 'class': return (icon: Icons.alarm, color: Colors.orange);
-    case 'chat': return (icon: n['data'] is Map && (n['data'] as Map)['thread_kind'] == 'group' ? Icons.forum : Icons.chat_bubble, color: Colors.deepPurple);
+    case 'chat': return (icon: n['data'] is Map && (n['data'] as Map)['thread_kind'] != 'private' ? Icons.forum : Icons.chat_bubble, color: Colors.deepPurple);
     case 'section': return (icon: Icons.groups, color: Colors.blue);
     default: return (icon: Icons.notifications, color: Colors.blueGrey);
   }
@@ -94,6 +95,7 @@ class _NotificationsViewState extends State<NotificationsView> {
 /// Open the chat an alert is about (private chat, or the Group tab).
 void openChatAlert(BuildContext c, Map<String, dynamic> n) {
   final d = n['data'] is Map ? n['data'] as Map : const {};
-  if (d['thread_kind'] == 'group') { Navigator.push(c, MaterialPageRoute(builder: (_) => const MessagesScreen(initialTab: 1))); }
+  if (d['thread_kind'] == 'staff' && d['thread_id'] != null) { Navigator.push(c, MaterialPageRoute(builder: (_) => StaffGroupScreen(threadId: '${d['thread_id']}', title: '${n['title']}'.split(' · ').first))); }
+  else if (d['thread_kind'] == 'group') { Navigator.push(c, MaterialPageRoute(builder: (_) => const MessagesScreen(initialTab: 1))); }
   else if (d['thread_id'] != null) { Navigator.push(c, MaterialPageRoute(builder: (_) => ChatScreen(threadId: '${d['thread_id']}', name: '${d['sender_name'] ?? 'Chat'}', photo: d['sender_photo'] as String?))); }
 }

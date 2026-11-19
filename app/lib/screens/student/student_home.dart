@@ -7,8 +7,7 @@ import '../../widgets/family_shell.dart';
 import '../../widgets/feed_view.dart';
 import '../../widgets/shared.dart';
 import '../profile_screen.dart';
-import 'room_screen.dart';
-import 'messages_screen.dart';
+import '../../widgets/chat_actions.dart';
 import '../../core/chat_data.dart';
 import '../../core/messenger.dart';
 import '../../widgets/notifications_view.dart';
@@ -79,18 +78,6 @@ class _StudentHomeState extends State<StudentHome> {
     return p?['photo_url'] as String?;
   }
 
-  /// Small "Messages" + "Room" buttons at the top of the Home tab.
-  Widget _quick(BuildContext c) => Padding(padding: const EdgeInsets.only(bottom: 16), child: Row(children: [
-        StreamBuilder<JRows>(stream: ChatData.threads(), builder: (c, ts) => StreamBuilder<JRows>(stream: ChatData.reads(), builder: (c, rs) {
-          final read = ChatData.readMap(rs.data ?? const []);
-          final n = (ts.data ?? const <Map<String, dynamic>>[]).where((t) => ChatData.isUnread(t, read)).length;
-          return Badge(isLabelVisible: n > 0, label: Text('$n'), child: FilledButton.tonalIcon(
-            onPressed: () => Navigator.push(c, MaterialPageRoute(builder: (_) => const MessagesScreen())), icon: const Icon(Icons.forum_outlined, size: 18), label: const Text('Messages')));
-        })),
-        const SizedBox(width: 10),
-        OutlinedButton.icon(onPressed: () => Navigator.push(c, MaterialPageRoute(builder: (_) => const RoomScreen())), icon: const Icon(Icons.meeting_room_outlined, size: 18), label: const Text('Room')),
-      ]));
-
   @override
   Widget build(BuildContext c) {
     final s = st;
@@ -98,14 +85,14 @@ class _StudentHomeState extends State<StudentHome> {
     final id = s['id'] as String, sectionId = s['section_id'] as String?, name = '${s['first_name']} ${s['last_name']}';
     return StreamBuilder<int>(
       stream: unread, initialData: 0,
-      builder: (c, u) => FamilyShell(selected: nav, tabs: [
+      builder: (c, u) => FamilyShell(selected: nav, actions: [if (sectionId != null) const ChatActions()], tabs: [
         FamilyTab(id: 'home', label: 'Home', icon: Icons.home_outlined, selectedIcon: Icons.home,
-            build: () => FamilyHome(studentId: id, name: name, studentNo: '${s['student_no']}', photo: widget.profile['photo_url'] as String?, sectionId: sectionId, classLabel: sectionLabel, extra: sectionId == null ? const [] : [_quick(c)], onGo: (t) => nav.value = t, loadPhoto: _photo)),
+            build: () => FamilyHome(studentId: id, name: name, studentNo: '${s['student_no']}', photo: widget.profile['photo_url'] as String?, sectionId: sectionId, classLabel: sectionLabel, onGo: (t) => nav.value = t, loadPhoto: _photo)),
         FamilyTab(id: 'feed', label: 'Feed', icon: Icons.dynamic_feed_outlined, selectedIcon: Icons.dynamic_feed, build: () => FeedView(student: true, sectionId: sectionId)),
         FamilyTab(id: 'attendance', label: 'Attendance', icon: Icons.how_to_reg_outlined, selectedIcon: Icons.how_to_reg,
             build: () => AttendanceView(id, sectionId: sectionId, studentName: name, showSubjects: true)),
         FamilyTab(id: 'grades', label: 'Grades', icon: Icons.school_outlined, selectedIcon: Icons.school,
-            build: () => GradesView(id, name: name, studentNo: '${s['student_no']}', classLabel: sectionLabel ?? 'Grade ${s['grade_level']}')),
+            build: () => GradesView(id, key: ValueKey('gr-$sectionId'), sectionId: sectionId, name: name, studentNo: '${s['student_no']}', classLabel: sectionLabel ?? 'Grade ${s['grade_level']}')),
         FamilyTab(id: 'alerts', label: 'Alerts', icon: Icons.notifications_outlined, selectedIcon: Icons.notifications, badge: u.data ?? 0, build: () => const NotificationsView()),
         FamilyTab(id: 'profile', label: 'Profile', icon: Icons.person_outline, selectedIcon: Icons.person, build: () => const ProfileTab()),
       ]),

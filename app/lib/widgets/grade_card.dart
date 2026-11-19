@@ -11,13 +11,19 @@ String _descriptor(num g) => g >= 90 ? 'Outstanding' : g >= 85 ? 'Very Satisfact
 /// Released grades laid out like a printed report card: learning areas x 4 quarters, final grade, remarks, general average.
 class GradesView extends StatefulWidget {
   final String studentId; final String? name, studentNo, classLabel;
-  const GradesView(this.studentId, {super.key, this.name, this.studentNo, this.classLabel});
+  /// The student's section: its subjects are listed even before any grade is released.
+  final String? sectionId;
+  const GradesView(this.studentId, {super.key, this.name, this.studentNo, this.classLabel, this.sectionId});
   @override
   State<GradesView> createState() => _GradesViewState();
 }
 
 class _GradesViewState extends State<GradesView> {
   late final Stream<List<Map<String, dynamic>>> _stream = liveStream('grades|student_id=${widget.studentId}', () => sb.from('grades').stream(primaryKey: ['id']).eq('student_id', widget.studentId));
+  /// Subjects of the section + extra subjects the student picked in other sections (live), so every subject shows up even without grades.
+  late final Stream<List<Map<String, dynamic>>> _offered = widget.sectionId == null ? Stream.value(const <Map<String, dynamic>>[])
+      : liveStream('section_subjects|section_id=${widget.sectionId}', () => sb.from('section_subjects').stream(primaryKey: ['section_id', 'subject_id']).eq('section_id', widget.sectionId!));
+  late final Stream<List<Map<String, dynamic>>> _extras = liveStream('student_subjects|student_id=${widget.studentId}', () => sb.from('student_subjects').stream(primaryKey: ['student_id', 'section_id', 'subject_id']).eq('student_id', widget.studentId));
   String? year;
 
   @override
@@ -99,13 +105,15 @@ class _GradesViewState extends State<GradesView> {
   @override
   Widget build(BuildContext c) => StreamBuilder<List<Map<String, dynamic>>>(
         stream: _stream,
-        builder: (c, s) {
+        builder: (c, s) => StreamBuilder<List<Map<String, dynamic>>>(stream: _offered, builder: (c, o) => StreamBuilder<List<Map<String, dynamic>>>(stream: _extras, builder: (c, x) {
           if (s.hasError) { return const EmptyState(icon: Icons.cloud_off, title: 'Could not load grades', message: 'Check your connection and try again.'); }
           if (!s.hasData) { return const Center(child: CircularProgressIndicator()); }
           final rows = s.data!.where((g) => g['released'] == true).toList();
-          if (rows.isEmpty) { return const EmptyState(icon: Icons.menu_book_outlined, title: 'No grades yet', message: 'Released grades appear here.'); }
+          final subjectIds = <String>{for (final r in [...?o.data, ...?x.data]) '${r['subject_id']}', for (final g in rows) '${g['subject_id']}'};
+          if (subjectIds.isEmpty) { return const EmptyState(icon: Icons.menu_book_outlined, title: 'No subjects yet', message: 'Your subjects appear here once you are added to a section.'); }
           return ListenableBuilder(listenable: Lookup.i, builder: (c, _) {
             final by = <String, Map<int, num>>{};
+            for (final id in subjectIds) { by.putIfAbsent(Lookup.i.subject(id), () => {}); }            // every subject is listed, with or without grades
             for (final g in rows) { (by[Lookup.i.subject(g['subject_id'] as String?)] ??= {})[g['term'] as int] = g['grade'] as num; }
             final finals = [for (final e in by.entries) if (e.value.length == 4) e.value.values.reduce((a, b) => a + b) / 4];
             final general = finals.isEmpty ? null : finals.reduce((a, b) => a + b) / finals.length;
@@ -138,6 +146,6 @@ class _GradesViewState extends State<GradesView> {
               ])),
             ])));
           });
-        },
+        })),
       );
 }

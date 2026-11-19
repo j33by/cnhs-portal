@@ -32,7 +32,11 @@ class _MessagesScreenState extends State<MessagesScreen> with SingleTickerProvid
   }
 
   List<Map<String, dynamic>> get _mates => [for (final m in (roster['classmates'] as List? ?? const [])) Map<String, dynamic>.from(m as Map)];
-  Map<String, dynamic>? _person(String id) { for (final m in _mates) { if (m['id'] == id) { return m; } } return null; }
+  List<Map<String, dynamic>> get _teachers => [
+        if (roster['adviser'] is Map) Map<String, dynamic>.from(roster['adviser'] as Map),
+        for (final t in (roster['subject_teachers'] as List? ?? const [])) Map<String, dynamic>.from(t as Map),
+      ];
+  Map<String, dynamic>? _person(String id) { for (final m in [..._mates, ..._teachers]) { if (m['id'] == id) { return m; } } return null; }
 
   Future<void> _open(Map<String, dynamic> p) async {
     try {
@@ -43,11 +47,14 @@ class _MessagesScreenState extends State<MessagesScreen> with SingleTickerProvid
   }
 
   Future<void> _newMessage() async {
-    final others = _mates.where((m) => m['id'] != myUid).toList();
+    final others = _mates.where((m) => m['id'] != myUid).toList(), teachers = _teachers;
     final pick = await showModalBottomSheet<Map<String, dynamic>>(context: context, isScrollControlled: true, showDragHandle: true, builder: (c) => DraggableScrollableSheet(
       expand: false, initialChildSize: .7, maxChildSize: .92, builder: (c, sc) => Column(children: [
         const Padding(padding: EdgeInsets.fromLTRB(20, 0, 20, 8), child: Align(alignment: Alignment.centerLeft, child: Text('New message', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)))),
-        Expanded(child: others.isEmpty ? const Center(child: Text('No classmates yet.')) : ListView(controller: sc, children: [
+        Expanded(child: others.isEmpty && teachers.isEmpty ? const Center(child: Text('Nobody to message yet.')) : ListView(controller: sc, children: [
+          if (teachers.isNotEmpty) const Padding(padding: EdgeInsets.fromLTRB(20, 8, 20, 4), child: Text('TEACHERS', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: .6))),
+          for (final m in teachers) ListTile(leading: PersonAvatar(url: m['photo_url'] as String?, name: fullName(m)), title: Text(fullName(m)), subtitle: Text(m['id'] == roster['adviser']?['id'] ? 'Adviser' : (m['subjects'] as List? ?? const []).join(' · '), maxLines: 1, overflow: TextOverflow.ellipsis), onTap: () => Navigator.pop(c, m)),
+          if (others.isNotEmpty) const Padding(padding: EdgeInsets.fromLTRB(20, 12, 20, 4), child: Text('CLASSMATES', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: .6))),
           for (final m in others) ListTile(leading: PersonAvatar(url: m['photo_url'] as String?, name: fullName(m)), title: Text(fullName(m)), onTap: () => Navigator.pop(c, m)),
         ])),
       ])));
@@ -67,7 +74,7 @@ class _MessagesScreenState extends State<MessagesScreen> with SingleTickerProvid
         final list = ts.data!.where((t) => t['kind'] == 'private' && '${t['last_preview'] ?? ''}'.isNotEmpty).toList()
           ..sort((a, b) => '${b['last_message_at']}'.compareTo('${a['last_message_at']}'));
         if (list.isEmpty) {
-          return EmptyState(icon: Icons.chat_bubble_outline, title: 'No private messages yet', message: 'Start a conversation with a classmate.', action: FilledButton.icon(onPressed: _newMessage, icon: const Icon(Icons.edit_outlined), label: const Text('New message')));
+          return EmptyState(icon: Icons.chat_bubble_outline, title: 'No private messages yet', message: 'Start a conversation with a classmate or a teacher.', action: FilledButton.icon(onPressed: _newMessage, icon: const Icon(Icons.edit_outlined), label: const Text('New message')));
         }
         return ListView.separated(padding: const EdgeInsets.only(bottom: 96), itemCount: list.length, separatorBuilder: (_, __) => const Divider(height: 1, indent: 76), itemBuilder: (c, i) {
           final t = list[i], other = '${t['user_a']}' == myUid ? '${t['user_b']}' : '${t['user_a']}', p = _person(other);

@@ -38,6 +38,15 @@ class ChatData {
         for (final r in rows) if (DateTime.tryParse('${r['last_read_at']}') != null) '${r['thread_id']}': DateTime.parse('${r['last_read_at']}'),
       };
 
+  /// Teachers: colleagues who share a section with me + my sections (each section has a teachers-only group chat).
+  static Future<Map<String, dynamic>> directory() async {
+    final r = await cachedRow('staff_directory', () async { final v = await sb.rpc('staff_directory'); return v is Map ? Map<String, dynamic>.from(v) : <String, dynamic>{}; });
+    return r ?? <String, dynamic>{};
+  }
+  /// Fires when teaching assignments change, so the teacher lists refresh by themselves.
+  static Stream<JRows> assignmentChanges() => liveStream('section_subjects|all', () => sb.from('section_subjects').stream(primaryKey: ['section_id', 'subject_id']));
+  static Future<String> openStaff(String sectionId) async => '${(await Api.post('/api/chat/staff', {'section_id': sectionId}))['id']}';
+
   static Future<String> openGroup() async => '${(await Api.post('/api/chat/group'))['id']}';
   static Future<String> openPrivate(String userId) async => '${(await Api.post('/api/chat/private', {'user_id': userId}))['id']}';
   static Future<void> markRead(String threadId) async { try { await Api.post('/api/chat/$threadId/read'); } catch (_) {} }

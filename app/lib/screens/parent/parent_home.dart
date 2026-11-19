@@ -131,7 +131,7 @@ class _ParentHomeState extends State<ParentHome> {
           FamilyTab(id: 'attendance', label: 'Attendance', icon: Icons.how_to_reg_outlined, selectedIcon: Icons.how_to_reg, build: () => kid == null ? needChild()
               : AttendanceView(sel!, key: ValueKey('att-$sel'), sectionId: sectionId, studentName: name, showSubjects: true)),
           FamilyTab(id: 'grades', label: 'Grades', icon: Icons.school_outlined, selectedIcon: Icons.school, build: () => kid == null ? needChild()
-              : GradesView(sel!, key: ValueKey('gr-$sel'), name: name, studentNo: '${kid['student_no']}', classLabel: label)),
+              : GradesView(sel!, key: ValueKey('gr-$sel-$sectionId'), sectionId: sectionId, name: name, studentNo: '${kid['student_no']}', classLabel: label)),
           FamilyTab(id: 'alerts', label: 'Alerts', icon: Icons.notifications_outlined, selectedIcon: Icons.notifications, badge: u.data ?? 0, build: () => const NotificationsView()),
           FamilyTab(id: 'profile', label: 'Profile', icon: Icons.person_outline, selectedIcon: Icons.person, build: () => const ProfileTab()),
         ],

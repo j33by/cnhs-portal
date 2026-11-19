@@ -8,8 +8,10 @@ import '../../core/voice.dart';
 import '../../widgets/ui.dart';
 import 'chat_view.dart';
 import 'messages_screen.dart';
+import '../teacher/teacher_messages.dart';
 
-/// "Room": the people of my section — adviser, subject teachers and classmates (names only). Tap a classmate to message privately.
+/// "Room": the people of one section (adviser, subject teachers, classmates), voice messages and shortcuts to message anyone.
+/// Students open their own section; teachers open the section they pick.
 class RoomScreen extends StatefulWidget {
   /// Students: null (their own section). Teachers: the section whose room to open.
   final String? sectionId;
@@ -20,13 +22,18 @@ class RoomScreen extends StatefulWidget {
 
 class _RoomScreenState extends State<RoomScreen> {
   Map<String, dynamic>? data; bool failed = false; String q = '';
-  Timer? _tick;
+  Timer? _tick; StreamSubscription<dynamic>? _live;
   bool get teacherView => widget.sectionId != null;
 
   @override
-  void initState() { super.initState(); _load(); _tick = Timer.periodic(const Duration(seconds: 30), (_) { if (mounted) { setState(() {}); } }); }   // refresh "expires in" and hide expired voices
+  void initState() {
+    super.initState(); _load();
+    _tick = Timer.periodic(const Duration(seconds: 30), (_) { if (mounted) { setState(() {}); } });      // refresh "expires in" and hide expired voices
+    // people change in real time: students joining/leaving, teachers being assigned
+    _live = ChatData.assignmentChanges().listen((_) => _load(), onError: (_) {});
+  }
   @override
-  void dispose() { _tick?.cancel(); VoicePlayer.i.stop(quiet: true); super.dispose(); }
+  void dispose() { _tick?.cancel(); _live?.cancel(); VoicePlayer.i.stop(quiet: true); super.dispose(); }
   Future<void> _load() async {
     try { final r = await ChatData.roster(sectionId: widget.sectionId); if (mounted) { setState(() { data = r; failed = false; }); } }
     catch (_) { if (mounted && data == null) { setState(() => failed = true); } }
@@ -40,73 +47,132 @@ class _RoomScreenState extends State<RoomScreen> {
     } catch (e) { toastError(e); }
   }
 
+  Future<void> _group(String secId, String label) async {
+    try {
+      if (!teacherView) { Navigator.push(context, MaterialPageRoute(builder: (_) => const MessagesScreen(initialTab: 1))); return; }
+      final id = await ChatData.openStaff(secId);
+      if (!mounted) { return; }
+      Navigator.push(context, MaterialPageRoute(builder: (_) => StaffGroupScreen(threadId: id, title: '$label · Teachers')));
+    } catch (e) { toastError(e); }
+  }
+
   @override
   Widget build(BuildContext c) {
-    final cs = Theme.of(c).colorScheme, d = data;
+    final d = data;
     return Scaffold(
       appBar: AppBar(title: Text(teacherView ? 'Room' : 'My Room')),
       body: d == null
           ? (failed ? EmptyState(icon: Icons.cloud_off_outlined, title: 'Could not load your room', message: 'Check your connection and try again.', action: FilledButton(onPressed: _load, child: const Text('Retry'))) : const Center(child: CircularProgressIndicator()))
           : d['section'] == null
               ? const EmptyState(icon: Icons.meeting_room_outlined, title: 'No room yet', message: 'Your room opens once you are added to a section.')
-              : _body(c, d, cs),
+              : _body(c, d),
     );
   }
 
-  Widget _body(BuildContext c, Map<String, dynamic> d, ColorScheme cs) {
-    final sec = d['section'] as Map, adviser = d['adviser'] as Map?, secId = '${sec['id']}';
+  Widget _body(BuildContext c, Map<String, dynamic> d) {
+    final cs = Theme.of(c).colorScheme;
+    final sec = d['section'] as Map, adviser = d['adviser'] == null ? null : Map<String, dynamic>.from(d['adviser'] as Map), secId = '${sec['id']}', label = 'Grade ${sec['grade_level']} · ${sec['name']}';
     final subs = [for (final t in (d['subject_teachers'] as List? ?? const [])) Map<String, dynamic>.from(t as Map)];
     final mates = [for (final m in (d['classmates'] as List? ?? const [])) Map<String, dynamic>.from(m as Map)];
+    final teachers = [if (adviser != null) adviser, ...subs];
     final f = q.trim().toLowerCase();
     final shown = f.isEmpty ? mates : mates.where((m) => fullName(m).toLowerCase().contains(f)).toList();
     return StreamBuilder<JRows>(stream: VoiceData.stream(secId), builder: (c, vs) {
-    final voices = {for (final v in (vs.data ?? const <Map<String, dynamic>>[]).where(VoiceData.alive)) '${v['user_id']}': v};
-    final iAmAdviser = adviser != null && adviser['id'] == myUid;
-    return RefreshIndicator(onRefresh: _load, child: Align(alignment: Alignment.topCenter, child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 680), child: ListView(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 32), children: [
-        Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: cs.primaryContainer, borderRadius: BorderRadius.circular(20)), child: Row(children: [
-          CircleAvatar(radius: 24, backgroundColor: cs.primary, child: Icon(Icons.groups, color: cs.onPrimary)),
-          const SizedBox(width: 14),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('Grade ${sec['grade_level']} · ${sec['name']}', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: cs.onPrimaryContainer)),
-            Text('${mates.length} classmate${mates.length == 1 ? '' : 's'}', style: TextStyle(color: cs.onPrimaryContainer.withValues(alpha: .75))),
-          ])),
-          if (!teacherView) FilledButton.tonalIcon(onPressed: () => Navigator.push(c, MaterialPageRoute(builder: (_) => const MessagesScreen(initialTab: 1))), icon: const Icon(Icons.forum_outlined, size: 18), label: const Text('Group chat')),
-        ])),
-        const SizedBox(height: 12),
-        _VoiceComposer(sectionId: secId, mine: voices[myUid]),
-        const SizedBox(height: 20),
-        const SectionTitle('Teachers', icon: Icons.school_outlined),
-        if (adviser == null && subs.isEmpty) const Padding(padding: EdgeInsets.all(8), child: Text('No teachers assigned yet.')),
-        if (adviser != null) _teacher(c, Map<String, dynamic>.from(adviser), 'Adviser', voices, iAmAdviser, highlight: true),
-        for (final t in subs) _teacher(c, t, (t['subjects'] as List? ?? const []).join(' · '), voices, iAmAdviser),
-        const SizedBox(height: 20),
-        SectionTitle(teacherView ? 'Students' : 'Classmates', icon: Icons.people_outline),
-        TextField(onChanged: (v) => setState(() => q = v), decoration: InputDecoration(hintText: teacherView ? 'Search students' : 'Search classmates', prefixIcon: const Icon(Icons.search), isDense: true, border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)))),
-        const SizedBox(height: 8),
-        if (shown.isEmpty) Padding(padding: const EdgeInsets.all(24), child: Center(child: Text(mates.isEmpty ? 'No classmates yet.' : 'No one matches "$q".', style: TextStyle(color: Theme.of(c).hintColor)))),
-        for (final m in shown) _mate(c, m, voices, iAmAdviser),
-      ],
-    ))));
+      final voices = {for (final v in (vs.data ?? const <Map<String, dynamic>>[]).where(VoiceData.alive)) '${v['user_id']}': v};
+      final iAmAdviser = adviser != null && adviser['id'] == myUid;
+      return RefreshIndicator(onRefresh: _load, child: Align(alignment: Alignment.topCenter, child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 680), child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 32), children: [
+          // ---- header
+          Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(borderRadius: BorderRadius.circular(22), gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [cs.primary, Color.lerp(cs.primary, Colors.black, .3)!])),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                Container(width: 44, height: 44, decoration: BoxDecoration(color: Colors.white.withValues(alpha: .18), shape: BoxShape.circle), child: const Icon(Icons.groups_rounded, color: Colors.white)),
+                const SizedBox(width: 12),
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(label, style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800, color: Colors.white)),
+                  Text('${mates.length} student${mates.length == 1 ? '' : 's'} · ${teachers.length} teacher${teachers.length == 1 ? '' : 's'}', style: TextStyle(color: Colors.white.withValues(alpha: .85), fontSize: 13)),
+                ])),
+              ]),
+              const SizedBox(height: 14),
+              FilledButton.tonalIcon(onPressed: () => _group(secId, label), icon: Icon(teacherView ? Icons.lock_outline : Icons.forum_outlined, size: 18), label: Text(teacherView ? 'Teachers chat' : 'Group chat')),
+            ])),
+          const SizedBox(height: 12),
+          _VoiceComposer(sectionId: secId, mine: voices[myUid]),
+          const SizedBox(height: 14),
+          // ---- teachers (drop-down)
+          _Collapsible(icon: Icons.school_outlined, title: 'Teachers', count: teachers.length, preview: [for (final t in teachers.take(4)) t],
+            child: teachers.isEmpty ? Padding(padding: const EdgeInsets.all(16), child: Text('No teachers assigned yet.', style: TextStyle(color: Theme.of(c).hintColor)))
+                : Column(children: [for (final t in teachers) _teacherRow(c, t, t['id'] == adviser?['id'] ? 'Adviser' : (t['subjects'] as List? ?? const []).join(' · '), voices, iAmAdviser, t['id'] == adviser?['id'])])),
+          const SizedBox(height: 10),
+          // ---- classmates / students (drop-down)
+          _Collapsible(icon: Icons.people_outline, title: teacherView ? 'Students' : 'Classmates', count: mates.length, initiallyOpen: true, preview: const [],
+            child: Column(children: [
+              if (mates.length > 6) Padding(padding: const EdgeInsets.fromLTRB(12, 4, 12, 6), child: TextField(onChanged: (v) => setState(() => q = v),
+                  decoration: InputDecoration(hintText: teacherView ? 'Search students' : 'Search classmates', prefixIcon: const Icon(Icons.search, size: 20), isDense: true, filled: true, border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none)))),
+              if (shown.isEmpty) Padding(padding: const EdgeInsets.all(20), child: Text(mates.isEmpty ? 'No students yet.' : 'No one matches "$q".', style: TextStyle(color: Theme.of(c).hintColor))),
+              for (final m in shown) _mateRow(c, m, voices, iAmAdviser),
+            ])),
+        ],
+      ))));
     });
   }
 
-  Widget _teacher(BuildContext c, Map<String, dynamic> t, String sub, Map<String, Map<String, dynamic>> voices, bool mod, {bool highlight = false}) => Padding(padding: const EdgeInsets.only(bottom: 8), child: SoftCard(child: Row(children: [
-        PersonAvatar(url: t['photo_url'] as String?, name: fullName(t), radius: 22), const SizedBox(width: 12),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [Flexible(child: Text(fullName(t), overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15))), if (voices['${t['id']}'] != null) VoiceChip(key: ValueKey('v${voices['${t['id']}']!['id']}'), voice: voices['${t['id']}']!, canDelete: t['id'] == myUid || mod)]),
-          if (sub.isNotEmpty) Text(sub, style: TextStyle(fontSize: 12.5, color: Theme.of(c).hintColor)),
-        ])),
-        if (t['id'] == myUid) const Pill('You', Color(0xFF546E7A)) else if (highlight) const Pill('Adviser', Color(0xFF1B5E3B), icon: Icons.verified_outlined),
-      ])));
+  Widget _teacherRow(BuildContext c, Map<String, dynamic> t, String sub, Map<String, Map<String, dynamic>> voices, bool mod, bool isAdviser) {
+    final me = t['id'] == myUid, v = voices['${t['id']}'];
+    return ListTile(
+      dense: false, contentPadding: const EdgeInsets.symmetric(horizontal: 14), onTap: me ? null : () => _message(t),
+      leading: PersonAvatar(url: t['photo_url'] as String?, name: fullName(t), radius: 20),
+      title: Row(children: [Flexible(child: Text(fullName(t), overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600))), if (v != null) VoiceChip(key: ValueKey('v${v['id']}'), voice: v, canDelete: me || mod)]),
+      subtitle: sub.isEmpty ? null : Text(sub, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12.5)),
+      trailing: me ? const Pill('You', Color(0xFF546E7A)) : Row(mainAxisSize: MainAxisSize.min, children: [
+        if (isAdviser) const Padding(padding: EdgeInsets.only(right: 4), child: Pill('Adviser', Color(0xFF1B5E3B), icon: Icons.verified_outlined)),
+        IconButton(tooltip: 'Message', icon: const Icon(Icons.chat_bubble_outline, size: 20), onPressed: () => _message(t)),
+      ]),
+    );
+  }
 
-  Widget _mate(BuildContext c, Map<String, dynamic> m, Map<String, Map<String, dynamic>> voices, bool mod) {
+  Widget _mateRow(BuildContext c, Map<String, dynamic> m, Map<String, Map<String, dynamic>> voices, bool mod) {
     final me = m['id'] == myUid, v = voices['${m['id']}'];
     return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 4), onTap: me || teacherView ? null : () => _message(m),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14), onTap: me ? null : () => _message(m),
       leading: PersonAvatar(url: m['photo_url'] as String?, name: fullName(m), radius: 20),
       title: Row(children: [Flexible(child: Text(fullName(m), overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w500))), if (v != null) VoiceChip(key: ValueKey('v${v['id']}'), voice: v, canDelete: me || mod)]),
-      trailing: me ? const Pill('You', Color(0xFF546E7A)) : teacherView ? null : IconButton(tooltip: 'Message', icon: const Icon(Icons.chat_bubble_outline), onPressed: () => _message(m)),
+      trailing: me ? const Pill('You', Color(0xFF546E7A)) : IconButton(tooltip: 'Message', icon: const Icon(Icons.chat_bubble_outline, size: 20), onPressed: () => _message(m)),
+    );
+  }
+}
+
+/// A card with a header that expands / collapses its content (animated). The header can show a few small avatars as a preview while closed.
+class _Collapsible extends StatefulWidget {
+  final IconData icon; final String title; final int count; final Widget child; final bool initiallyOpen; final List<Map<String, dynamic>> preview;
+  const _Collapsible({required this.icon, required this.title, required this.count, required this.child, this.initiallyOpen = false, this.preview = const []});
+  @override
+  State<_Collapsible> createState() => _CollapsibleState();
+}
+
+class _CollapsibleState extends State<_Collapsible> {
+  late bool open = widget.initiallyOpen;
+  @override
+  Widget build(BuildContext c) {
+    final cs = Theme.of(c).colorScheme;
+    return Container(
+      decoration: BoxDecoration(color: cs.surface, borderRadius: BorderRadius.circular(18), border: Border.all(color: Theme.of(c).dividerColor.withValues(alpha: .5))),
+      clipBehavior: Clip.antiAlias,
+      child: Column(children: [
+        InkWell(onTap: () => setState(() => open = !open), child: Padding(padding: const EdgeInsets.fromLTRB(14, 12, 10, 12), child: Row(children: [
+          Icon(widget.icon, color: cs.primary), const SizedBox(width: 10),
+          Text(widget.title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)), const SizedBox(width: 8),
+          Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), decoration: BoxDecoration(color: cs.primaryContainer, borderRadius: BorderRadius.circular(10)), child: Text('${widget.count}', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: cs.onPrimaryContainer))),
+          const Spacer(),
+          if (!open && widget.preview.isNotEmpty) SizedBox(height: 28, width: 18.0 * widget.preview.length + 12, child: Stack(children: [
+            for (var i = 0; i < widget.preview.length; i++) Positioned(left: 18.0 * i, child: Container(padding: const EdgeInsets.all(1.5), decoration: BoxDecoration(color: cs.surface, shape: BoxShape.circle),
+                child: PersonAvatar(url: widget.preview[i]['photo_url'] as String?, name: fullName(widget.preview[i]), radius: 11))),
+          ])),
+          AnimatedRotation(turns: open ? .5 : 0, duration: const Duration(milliseconds: 200), child: const Icon(Icons.keyboard_arrow_down_rounded)),
+        ]))),
+        AnimatedSize(duration: const Duration(milliseconds: 220), curve: Curves.easeInOut, alignment: Alignment.topCenter,
+            child: open ? Column(children: [Divider(height: 1, color: Theme.of(c).dividerColor.withValues(alpha: .5)), widget.child, const SizedBox(height: 4)]) : const SizedBox(width: double.infinity)),
+      ]),
     );
   }
 }
