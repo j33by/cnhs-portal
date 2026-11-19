@@ -24,14 +24,25 @@ module.exports = function mount(app, { sb, wrap, bad, teacherOnly, curYear }) {
     }
     return out;
   };
+  // Room sections (stricter than mySections): a student's own section + the sections a teacher is ADVISER of. Used for student section posts.
+  const roomSections = async q => {
+    const uid = q.user.id, out = new Set();
+    if (q.profile?.role === 'student') { const { data } = await sb.from('students').select('section_id').eq('id', uid).maybeSingle(); if (data?.section_id) out.add(data.section_id); }
+    else if (q.profile?.role === 'teacher') for (const s of (await sb.from('sections').select('id').eq('adviser_id', uid)).data || []) out.add(s.id);
+    return out;
+  };
   const loadPost = async (q, id) => {
     const { data: p } = await sb.from('posts').select('*').eq('id', id).maybeSingle(); if (!p) throw bad('Post not found', 404);
     if (p.author_id !== q.user.id) {
-      const mine = await mySections(q), { data: t } = await sb.from('post_targets').select('section_id').eq('post_id', id);
-      if (!(t || []).some(x => mine.has(x.section_id))) throw bad('Post not found', 404);
+      if (p.section_post_of) { if (!(await roomSections(q)).has(p.section_post_of)) throw bad('Post not found', 404); }
+      else {
+        const mine = await mySections(q), { data: t } = await sb.from('post_targets').select('section_id').eq('post_id', id);
+        if (!(t || []).some(x => mine.has(x.section_id))) throw bad('Post not found', 404);
+      }
     }
     return p;
   };
+  const isAdviserOf = async (uid, sectionId) => !!sectionId && !!(await sb.from('sections').select('id').eq('id', sectionId).eq('adviser_id', uid).maybeSingle()).data;
   const pathOf = url => url.startsWith(BUCKET_URL) ? url.slice(BUCKET_URL.length) : null;
   const removeImages = async urls => { const paths = (urls || []).map(pathOf).filter(Boolean); if (paths.length) await sb.storage.from('pictures').remove(paths).catch(() => {}); };
   const snippet = (t, n = 110) => { const s = String(t || '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
@@ -78,7 +89,7 @@ module.exports = function mount(app, { sb, wrap, bad, teacherOnly, curYear }) {
     const audience = labels.length > 3 ? labels.slice(0, 2).join(' + ') + ` + ${labels.length - 2} more` : labels.join(' + ');
     const name = q.profile.full_name || 'Teacher';
     const { data: post, error } = await sb.from('posts').insert({ author_id: uid, author_name: name, author_photo: q.profile.photo_url || null, body: text, category, images,
-      allow_reactions: b.allow_reactions !== false, allow_comments: b.allow_comments !== false, pinned: !!b.pinned, audience }).select().single();
+      allow_reactions: b.allow_reactions !== false, allow_comments: b.allow_comments !== false, pinned: !!b.pinned, audience, kinds: Object.fromEntries(rows) }).select().single();
     if (error) throw error;
     const { error: e2 } = await sb.from('post_targets').insert([...rows].map(([section_id, kind]) => ({ post_id: post.id, section_id, kind })));
     if (e2) { await sb.from('posts').delete().eq('id', post.id); throw e2; }
@@ -94,18 +105,38 @@ module.exports = function mount(app, { sb, wrap, bad, teacherOnly, curYear }) {
     r.json({ id: post.id, sections: rows.size, notified });
   }));
 
-  app.patch('/api/posts/:id', teacherOnly, wrap(async (q, r) => {
+  // ---- Students post in their own Section feed: only the section's students and its adviser can see it (database rule + checks here)
+  app.post('/api/section-posts', wrap(async (q, r) => {
+    if (q.profile?.role !== 'student') throw bad('Only students can post in the section feed.', 403);
+    const uid = q.user.id, b = q.body || {}, text = String(b.text || '').trim().slice(0, 2000), images = Array.isArray(b.images) ? b.images.slice(0, 4) : [];
+    if (!text && !images.length) throw bad('Write something or add a photo.');
+    if (images.some(u => typeof u !== 'string' || !u.startsWith(BUCKET_URL + uid + '/'))) throw bad('Invalid image.');
+    const { data: st } = await sb.from('students').select('id,first_name,section_id,sections(grade_level,name,adviser_id)').eq('id', uid).maybeSingle();
+    if (!st?.section_id) throw bad('You can post once you are added to a section.', 403);
+    const name = q.profile.full_name || st.first_name, label = `Grade ${st.sections.grade_level} · ${st.sections.name}`;
+    const { data: post, error } = await sb.from('posts').insert({ author_id: uid, author_name: name, author_photo: q.profile.photo_url || null, body: text, category: 'section', images,
+      allow_reactions: true, allow_comments: true, pinned: false, audience: `${label} · only classmates and adviser`, section_post_of: st.section_id, kinds: {} }).select().single();
+    if (error) throw error;
+    const { data: mates } = await sb.from('students').select('id').eq('section_id', st.section_id).eq('status', 'enrolled').neq('id', uid);
+    const who = (mates || []).map(x => x.id); if (st.sections.adviser_id) who.push(st.sections.adviser_id);
+    for (const part of chunk(who, 400)) await notify(sb, part, { kind: 'feed', title: `${name} posted in ${label}`, body: text ? snippet(text) : 'Shared a photo', data: { post_id: post.id } });
+    r.json({ id: post.id });
+  }));
+
+  app.patch('/api/posts/:id', wrap(async (q, r) => {
     const p = await loadPost(q, q.params.id); if (p.author_id !== q.user.id) throw bad('Only the author can edit this post.', 403);
+    const teacher = q.profile?.role === 'teacher';
     const b = q.body || {}, upd = {};
     if (b.text !== undefined) { upd.body = String(b.text).trim().slice(0, 3000); if (upd.body !== p.body) upd.edited_at = new Date().toISOString(); }
-    if (CATS.includes(b.category)) upd.category = b.category;
-    for (const k of ['allow_reactions', 'allow_comments', 'pinned']) if (typeof b[k] === 'boolean') upd[k] = b[k];
+    if (teacher && !p.section_post_of && CATS.includes(b.category)) upd.category = b.category;
+    if (teacher && !p.section_post_of) for (const k of ['allow_reactions', 'allow_comments', 'pinned']) if (typeof b[k] === 'boolean') upd[k] = b[k];
     if (Array.isArray(b.images)) { const keep = b.images.filter(u => p.images.includes(u)); await removeImages(p.images.filter(u => !keep.includes(u))); upd.images = keep; }
     if (!(upd.body ?? p.body).trim() && !(upd.images ?? p.images).length) throw bad('A post needs text or a photo.');
     const { error } = await sb.from('posts').update(upd).eq('id', p.id); if (error) throw error; r.json({ ok: true });
   }));
-  app.delete('/api/posts/:id', teacherOnly, wrap(async (q, r) => {
-    const p = await loadPost(q, q.params.id); if (p.author_id !== q.user.id) throw bad('Only the author can delete this post.', 403);
+  app.delete('/api/posts/:id', wrap(async (q, r) => {
+    const p = await loadPost(q, q.params.id);
+    if (p.author_id !== q.user.id && !(p.section_post_of && q.profile?.role === 'teacher' && await isAdviserOf(q.user.id, p.section_post_of))) throw bad('Only the author (or the section adviser) can delete this post.', 403);
     await sb.from('posts').delete().eq('id', p.id); await removeImages(p.images); r.json({ ok: true });
   }));
 
@@ -135,7 +166,9 @@ module.exports = function mount(app, { sb, wrap, bad, teacherOnly, curYear }) {
   app.delete('/api/comments/:id', wrap(async (q, r) => {
     const { data: c } = await sb.from('post_comments').select('id,post_id,user_id').eq('id', q.params.id).maybeSingle(); if (!c) throw bad('Comment not found', 404);
     const { data: p } = await sb.from('posts').select('author_id').eq('id', c.post_id).maybeSingle();
-    if (c.user_id !== q.user.id && p?.author_id !== q.user.id) throw bad('You can only delete your own comments.', 403);
+    const { data: pp } = await sb.from('posts').select('section_post_of').eq('id', c.post_id).maybeSingle();
+    const moderator = !!pp?.section_post_of && q.profile?.role === 'teacher' && await isAdviserOf(q.user.id, pp.section_post_of);
+    if (c.user_id !== q.user.id && p?.author_id !== q.user.id && !moderator) throw bad('You can only delete your own comments.', 403);
     await sb.from('post_comments').delete().eq('id', c.id); r.json({ count: await recount(c.post_id) });
   }));
 };

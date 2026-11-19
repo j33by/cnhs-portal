@@ -8,6 +8,8 @@ const { buildEmployeeForm } = require('./services/xlsWriter');
 const { notify } = require('./services/notify');
 const mountClasses = require('./routes/classes');
 const mountFeed = require('./routes/feed');
+const mountChat = require('./routes/chat');
+const mountRoom = require('./routes/room');
 const { cleanProfile } = require('./services/profile');
 const { findConflicts, parseSlots } = require('./services/slots');
 const { sendClassReminders } = require('./services/reminders');
@@ -58,7 +60,7 @@ const cleanSubjects = list => {
 // (cron-job.org): https://YOUR-API.onrender.com/cron/class-reminders?key=CRON_SECRET   (safe to call repeatedly)
 app.get('/cron/class-reminders', wrap(async (q, r) => {
   if (!process.env.CRON_SECRET || q.query.key !== process.env.CRON_SECRET) throw bad('Forbidden', 403);
-  r.json({ ...await sendClassReminders(sb), ...await processClosures(sb), ...await applyDueCancellations(sb) });   // reminders + 30-min auto-absent + no-class marks
+  r.json({ ...await sendClassReminders(sb), ...await processClosures(sb), ...await applyDueCancellations(sb), voice_purged: await Promise.resolve(app.purgeRoomVoice?.()).catch(() => 0) });   // reminders + 30-min auto-absent + no-class marks
 }));
 app.get('/health', (_q, r) => r.json({ ok: true }));
 app.use('/api', auth);
@@ -216,6 +218,8 @@ app.delete('/api/schedules/:id', teacherOnly, wrap(async (q, r) => {
   await sb.from('schedules').delete().eq('id', q.params.id); r.json({ ok: true }); }));
 
 mountFeed(app, { sb, wrap, bad, teacherOnly, curYear });                 // announcements feed: posts, reactions, comments
+mountChat(app, { sb, wrap, bad, up });                                             // student Room chat: group + private messages
+mountRoom(app, { sb, wrap, bad, up });                                            // Room voice messages (30 s, gone after 12 h)
 mountClasses(app, { sb, wrap, bad, teacherOnly, curYear });   // class record, subject + homeroom attendance, grades
 
 // ============ USB / biometric sync (called by the Windows app) ============
@@ -261,5 +265,6 @@ setInterval(() => {                                                          // 
   processClosures(sb).catch(e => console.error('auto absent:', e.message));
   applyDueCancellations(sb).catch(e => console.error('no class:', e.message));
 }, 60000);
+setInterval(() => Promise.resolve(app.purgeRoomVoice && app.purgeRoomVoice()).catch(() => {}), 10 * 60000);   // voice messages older than 12 h
 setInterval(() => Promise.resolve(sb.from('sync_ops').delete().lt('created_at', new Date(Date.now() - 30 * 864e5).toISOString())).catch(() => {}), 6 * 3600000);   // forget old operation ids
 app.listen(process.env.PORT || 3000, () => console.log('CNHS API up'));
