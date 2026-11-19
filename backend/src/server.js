@@ -41,7 +41,7 @@ const freeBioId = async () => {
     const { data } = await sb.from(t).select(c).not(c, 'is', null).order(c, { ascending: false }).limit(1); if (data?.[0]) max = Math.max(max, data[0][c]); }
   return max + 1;
 };
-const adviserOfStudent = async (uid, sid) => { const { data } = await sb.from('students').select('section_id,sections(adviser_id)').eq('id', sid).maybeSingle();
+const adviserOfStudent = async (uid, sid) => { const { data } = await sb.from('students').select('section_id,sections!section_id(adviser_id)').eq('id', sid).maybeSingle();
   if (!data) throw bad('Student not found', 404); if (data.section_id && data.sections?.adviser_id !== uid) throw bad("Only the student's adviser can change this record", 403); };
 
 // Teacher subjects are typed by the teacher: [{code:'MATH7', name:'Mathematics 7'}], 1 to 5.
@@ -144,7 +144,7 @@ app.post('/api/device-token', wrap(async (q, r) => { await sb.from('profiles').u
 // ============ Parent binding ============
 app.post('/api/parent/bind', wrap(async (q, r) => {
   if (q.profile?.role !== 'parent') throw bad('Parents only', 403);
-  const { data: s } = await sb.from('students').select('id,first_name,last_name,section_id,sections(adviser_id)').eq('student_no', (q.body.student_no || '').trim()).maybeSingle();
+  const { data: s } = await sb.from('students').select('id,first_name,last_name,section_id,sections!section_id(adviser_id)').eq('student_no', (q.body.student_no || '').trim()).maybeSingle();
   if (!s) throw bad('No student with that ID number', 404);
   const { error } = await sb.from('parent_links').insert({ parent_id: q.user.id, student_id: s.id, student_name: `${s.first_name} ${s.last_name}`, student_no: (q.body.student_no || '').trim(), parent_name: q.profile.full_name, parent_email: q.profile.email });
   if (error?.code === '23505') throw bad('You already requested this student'); if (error) throw error;
@@ -234,7 +234,7 @@ app.post('/api/device/link', teacherOnly, wrap(async (q, r) => {
   const { biometric_id, id } = q.body; if (!Number.isInteger(biometric_id) || biometric_id < 1) throw bad('Invalid device ID');
   const { data: used } = await sb.from('students').select('id').eq('biometric_id', biometric_id).neq('id', id || '00000000-0000-0000-0000-000000000000');
   if (used?.length) throw bad('That device ID is already linked to another student');
-  const { data: me, error } = await sb.from('students').update({ biometric_id }).eq('id', id).select('id,first_name,section_id,sections(name)').single(); if (error) throw error;
+  const { data: me, error } = await sb.from('students').update({ biometric_id }).eq('id', id).select('id,first_name,section_id,sections!section_id(name)').single(); if (error) throw error;
   await relinkPunches(sb, me, biometric_id); r.json({ ok: true });
 }));
 app.post('/api/device/ignore', teacherOnly, wrap(async (q, r) => {           // IDs on the terminal that are not students (teachers, staff)
@@ -244,7 +244,7 @@ app.post('/api/device/unlink', teacherOnly, wrap(async (q, r) => {
 app.get('/api/usb/state', teacherOnly, wrap(async (_q, r) => r.json((await sb.from('usb_sync_state').select('*').eq('id', 1).single()).data)));
 app.get('/api/usb/employee-form', teacherOnly, wrap(async (_q, r) => {
   const [{ data: st }, { data: se }, { data: sc }] = await Promise.all([
-    sb.from('students').select('biometric_id,first_name,last_name,sections(biometric_dept_no)').eq('status', 'enrolled').not('biometric_id', 'is', null),
+    sb.from('students').select('biometric_id,first_name,last_name,sections!section_id(biometric_dept_no)').eq('status', 'enrolled').not('biometric_id', 'is', null),
     sb.from('sections').select('name,biometric_dept_no'),
     sb.from('schedules').select('day_of_week,start_time,end_time,sections(biometric_dept_no)')]);
   const { data: dev } = await sb.from('device_people').select('*');

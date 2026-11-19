@@ -111,8 +111,12 @@ module.exports = function mount(app, { sb, wrap, bad, teacherOnly, curYear }) {
     const uid = q.user.id, b = q.body || {}, text = String(b.text || '').trim().slice(0, 2000), images = Array.isArray(b.images) ? b.images.slice(0, 4) : [];
     if (!text && !images.length) throw bad('Write something or add a photo.');
     if (images.some(u => typeof u !== 'string' || !u.startsWith(BUCKET_URL + uid + '/'))) throw bad('Invalid image.');
-    const { data: st } = await sb.from('students').select('id,first_name,section_id,sections(grade_level,name,adviser_id)').eq('id', uid).maybeSingle();
+    const { data: st, error: se } = await sb.from('students').select('id,first_name,section_id').eq('id', uid).maybeSingle();
+    if (se) throw se;
     if (!st?.section_id) throw bad('You can post once you are added to a section.', 403);
+    const { data: sec, error: ce } = await sb.from('sections').select('grade_level,name,adviser_id').eq('id', st.section_id).maybeSingle();     // separate lookup: no embed that could be ambiguous
+    if (ce) throw ce; if (!sec) throw bad('Your section was not found.', 404);
+    st.sections = sec;
     const name = q.profile.full_name || st.first_name, label = `Grade ${st.sections.grade_level} · ${st.sections.name}`;
     const { data: post, error } = await sb.from('posts').insert({ author_id: uid, author_name: name, author_photo: q.profile.photo_url || null, body: text, category: 'section', images,
       allow_reactions: true, allow_comments: true, pinned: false, audience: `${label} · only classmates and adviser`, section_post_of: st.section_id, kinds: {} }).select().single();

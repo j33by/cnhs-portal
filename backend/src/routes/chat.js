@@ -20,25 +20,64 @@ module.exports = function mount(app, { sb, wrap, bad, up }) {
   const snippet = (t, n = 100) => { const s = String(t || '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
   const pathOf = url => typeof url === 'string' && url.startsWith(FILES_URL) ? url.slice(FILES_URL.length) : null;
 
-  // the signed-in student (must be enrolled in a section)
+  // teachers of a section = its adviser + the subject teachers
+  const sectionTeachers = async sid => {
+    const { data: sec } = await sb.from('sections').select('adviser_id').eq('id', sid).maybeSingle();
+    const { data: ss } = await sb.from('section_subjects').select('teacher_id').eq('section_id', sid);
+    return [...new Set([sec?.adviser_id, ...(ss || []).map(x => x.teacher_id)].filter(Boolean))];
+  };
+  const teaches = async (uid, sid) => (await sectionTeachers(sid)).includes(uid);
+  const shareSection = async (a, b) => {
+    const mine = async u => { const [{ data: x }, { data: y }] = await Promise.all([sb.from('sections').select('id').eq('adviser_id', u), sb.from('section_subjects').select('section_id').eq('teacher_id', u)]); return new Set([...(x || []).map(r => r.id), ...(y || []).map(r => r.section_id)]); };
+    const A = await mine(a), B = await mine(b); for (const id of A) if (B.has(id)) return true; return false;
+  };
+
+  // teacher <-> teacher (share a section) or teacher <-> student (a student of a section he advises/teaches)
+  const teacherMayChatWith = async (tid, other) => {
+    const { data: ot } = await sb.from('teachers').select('id').eq('id', other).maybeSingle(); if (ot) return shareSection(tid, other);
+    const { data: os } = await sb.from('students').select('section_id,status').eq('id', other).maybeSingle();
+    return !!(os?.section_id && os.status === 'enrolled' && await teaches(tid, os.section_id));
+  };
+  // student <-> classmate or student <-> adviser / subject teacher of my section
+  const studentMayChatWith = async (m, other) => {
+    const { data: os } = await sb.from('students').select('section_id,status').eq('id', other).maybeSingle();
+    if (os) return os.section_id === m.section_id && os.status === 'enrolled';
+    const { data: ot } = await sb.from('teachers').select('id').eq('id', other).maybeSingle();
+    return !!ot && await teaches(other, m.section_id);
+  };
+
+  // the signed-in person: a student enrolled in a section, or a teacher
   const me = async q => {
-    if (q.profile?.role !== 'student') throw bad('Chat is for students of the section.', 403);
+    if (q.profile?.role === 'teacher') {
+      const { data } = await sb.from('teachers').select('id,first_name,last_name').eq('id', q.user.id).maybeSingle();
+      if (!data) throw bad('Teacher record not found.', 403);
+      return { ...data, teacher: true };
+    }
+    if (q.profile?.role !== 'student') throw bad('Chat is for students and teachers.', 403);
     const { data } = await sb.from('students').select('id,first_name,last_name,section_id').eq('id', q.user.id).maybeSingle();
     if (!data) throw bad('Student record not found.', 403);
     if (!data.section_id) throw bad('You can chat once you are added to a section.', 403);
     return data;
   };
-  // a thread I may use: my section's group chat, or a private chat with a classmate who is still in my section
+  // a thread I may use. Students: my section's group chat, or a private chat with a classmate. Teachers: the staff chat of a section I teach, or a private chat with a teacher who shares a section with me.
   const thread = async (q, id) => {
     const m = await me(q);
     const { data: t } = await sb.from('chat_threads').select('*').eq('id', id).maybeSingle(); if (!t) throw bad('Chat not found', 404);
+    if (m.teacher) {
+      if (t.kind === 'staff') { if (!(await teaches(m.id, t.section_id))) throw bad('Chat not found', 404); }
+      else if (t.kind === 'private') {
+        if (![t.user_a, t.user_b].includes(m.id)) throw bad('Chat not found', 404);
+        const other = t.user_a === m.id ? t.user_b : t.user_a;
+        if (!(await teacherMayChatWith(m.id, other))) throw bad('You no longer share a section with this person.', 403);
+      } else throw bad('Chat not found', 404);
+      return { m, t };
+    }
     if (t.kind === 'group') { if (t.section_id !== m.section_id) throw bad('Chat not found', 404); }
-    else {
+    else if (t.kind === 'private') {
       if (![t.user_a, t.user_b].includes(m.id)) throw bad('Chat not found', 404);
       const other = t.user_a === m.id ? t.user_b : t.user_a;
-      const { data: o } = await sb.from('students').select('section_id').eq('id', other).maybeSingle();
-      if (!o || o.section_id !== m.section_id) throw bad('This classmate is no longer in your section.', 403);
-    }
+      if (!(await studentMayChatWith(m, other))) throw bad('This person is no longer in your section.', 403);
+    } else throw bad('Chat not found', 404);
     return { m, t };
   };
   const message = async (q, id) => {
@@ -49,7 +88,7 @@ module.exports = function mount(app, { sb, wrap, bad, up }) {
 
   // ---- open (or create) the group chat of my section
   app.post('/api/chat/group', wrap(async (q, r) => {
-    const m = await me(q);
+    const m = await me(q); if (m.teacher) throw bad('The section group chat is for students. Use the staff chat.', 403);
     let { data: t } = await sb.from('chat_threads').select('id').eq('kind', 'group').eq('section_id', m.section_id).maybeSingle();
     if (!t) {
       const ins = await sb.from('chat_threads').insert({ kind: 'group', section_id: m.section_id }).select('id').single();
@@ -58,12 +97,23 @@ module.exports = function mount(app, { sb, wrap, bad, up }) {
     r.json({ id: t.id });
   }));
 
-  // ---- open (or create) a private chat with a classmate
+  // ---- teachers: open (or create) the staff chat of a section I teach
+  app.post('/api/chat/staff', wrap(async (q, r) => {
+    const m = await me(q); if (!m.teacher) throw bad('Staff chats are for teachers.', 403);
+    const sid = String(q.body?.section_id || ''); if (!sid || !(await teaches(m.id, sid))) throw bad('You do not teach this section.', 403);
+    let { data: t } = await sb.from('chat_threads').select('id').eq('kind', 'staff').eq('section_id', sid).maybeSingle();
+    if (!t) {
+      const ins = await sb.from('chat_threads').insert({ kind: 'staff', section_id: sid }).select('id').single();
+      if (ins.error) { t = (await sb.from('chat_threads').select('id').eq('kind', 'staff').eq('section_id', sid).maybeSingle()).data; if (!t) throw ins.error; } else t = ins.data;
+    }
+    r.json({ id: t.id });
+  }));
+
+  // ---- open (or create) a private chat: student with a classmate, or teacher with a teacher who shares a section
   app.post('/api/chat/private', wrap(async (q, r) => {
     const m = await me(q), other = String(q.body?.user_id || '');
-    if (!other || other === m.id) throw bad('Choose a classmate.');
-    const { data: o } = await sb.from('students').select('id,section_id,status').eq('id', other).maybeSingle();
-    if (!o || o.section_id !== m.section_id || o.status !== 'enrolled') throw bad('You can only message students of your own section.', 403);
+    if (!other || other === m.id) throw bad('Choose someone to message.');
+    if (m.teacher ? !(await teacherMayChatWith(m.id, other)) : !(await studentMayChatWith(m, other))) throw bad(m.teacher ? 'You can message teachers who share a section with you and students of your sections.' : 'You can message your classmates and your teachers.', 403);
     const [a, b] = [m.id, other].sort();
     let { data: t } = await sb.from('chat_threads').select('id').eq('kind', 'private').eq('user_a', a).eq('user_b', b).maybeSingle();
     if (!t) {
@@ -118,15 +168,16 @@ module.exports = function mount(app, { sb, wrap, bad, up }) {
   const notifyChat = async (t, m, profile, msg) => {
     let ids;
     if (t.kind === 'private') ids = [t.user_a === m.id ? t.user_b : t.user_a];
+    else if (t.kind === 'staff') ids = (await sectionTeachers(t.section_id)).filter(id => id !== m.id);
     else ids = ((await sb.from('students').select('id').eq('section_id', t.section_id).eq('status', 'enrolled')).data || []).map(x => x.id).filter(id => id !== m.id);
     if (!ids.length) return;
     const who = profile?.full_name || `${m.first_name} ${m.last_name}`.trim();
     const what = msg.body ? snippet(msg.body, 90) : (msg.attachments?.[0]?.type || '').startsWith('image/') ? 'Sent a photo' : msg.attachments?.length > 1 ? `Sent ${msg.attachments.length} files` : 'Sent a file';
     let title = who;
-    if (t.kind === 'group') { const { data: sec } = await sb.from('sections').select('grade_level,name').eq('id', t.section_id).maybeSingle(); title = `${sec ? `Grade ${sec.grade_level} ${sec.name} group` : 'Section group'} · ${who}`; }
+    if (t.kind === 'group' || t.kind === 'staff') { const { data: sec } = await sb.from('sections').select('grade_level,name').eq('id', t.section_id).maybeSingle(); title = `${sec ? `Grade ${sec.grade_level} ${sec.name} ${t.kind === 'staff' ? 'teachers' : 'group'}` : 'Group'} · ${who}`; }
     const { data: open } = await sb.from('notifications').select('id,user_id,data').eq('kind', 'chat').eq('read', false).in('user_id', ids);
     const have = new Map((open || []).filter(n => n.data?.thread_id === t.id).map(n => [n.user_id, n.id]));
-    const data = { thread_id: t.id, thread_kind: t.kind, sender_id: m.id, sender_name: who, sender_photo: profile?.photo_url || null };
+    const data = { thread_id: t.id, thread_kind: t.kind, section_id: t.section_id || null, sender_id: m.id, sender_name: who, sender_photo: profile?.photo_url || null };
     for (const [uid, nid] of have) await sb.from('notifications').update({ title, body: what, data, created_at: new Date().toISOString() }).eq('id', nid);
     const fresh = ids.filter(id => !have.has(id));
     if (fresh.length) await notify(sb, fresh, { kind: 'chat', title, body: what, data });

@@ -11,7 +11,7 @@ with need(kind, name, fix) as (values
   ('table','sync_ops','010'),('table','posts','011'),('table','post_targets','011'),('table','post_reactions','011'),('table','post_comments','011'),
   ('table','student_subjects','012'),('table','chat_threads','016'),('table','chat_messages','016'),('table','chat_reads','016'),('table','room_voice','017'),
   ('view','teacher_names','004'),('view','kid_photos','009'),
-  ('function','next_id_seq','002'),('function','my_role','001'),('function','my_kids','001'),('function','my_section_ids','011'),('function','room_roster','016'),('function','room_view_sections','017'),
+  ('function','next_id_seq','002'),('function','my_role','001'),('function','my_kids','001'),('function','my_section_ids','011'),('function','room_roster','016'),('function','room_view_sections','017'),('function','staff_directory','018'),('function','teacher_section_ids','018'),
   ('column','posts.kinds','016'),('column','posts.section_post_of','016'),('column','profiles.contact_no','005'),('column','teachers.alert_minutes','008'),
   ('column','parent_links.student_name','007'),('column','parent_links.student_no','007'),('column','parent_links.parent_name','007'),('column','parent_links.parent_email','007'),
   ('column','daily_attendance.source','003'),('column','daily_attendance.marked_by','003'),('column','class_attendance.source','009'),('column','record_scores.updated_at','010'),
