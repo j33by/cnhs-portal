@@ -120,3 +120,14 @@ Run `backend/sql/018_teacher_chat.sql` (after 017). On the teacher Home tab: **M
 ## Teacher <-> student messages, new layout
 Run `backend/sql/019_teacher_student_chat.sql` (after 018). A teacher can message the students of any section he advises or teaches; a student can message the adviser and subject teachers of his own section (from the Room or New message). Only those two people can read the chat.
 **Room** and **Messages** are now icons in the top bar of every tab (Messages shows an unread count). The Room has a header card, a voice card, a collapsible **Teachers** list (tap the header to expand or collapse) and the Classmates / Students list.
+
+## USB / biometric sync (updated)
+- **Why nothing was written / the upload failed:** after `012`, student queries that embedded `sections(...)` became ambiguous and the server answered with an error, so the student list could not be built and logs could not be stored. Fixed in the backend (deploy it).
+- **Every registered student is written to `Employee Form.xls`** automatically: students without a device ID get one (above every ID already on the terminal), and new students are added as soon as they register (the Windows app rewrites the file while a stick is plugged in, otherwise on the next plug-in).
+- **Students = the terminal's "employees"**: people already on the terminal are matched to students by NAME (any order, long names cut at 24 characters are handled) and linked automatically; punches made before the link are attached. Two people with the same name are never guessed: use the fingerprint icon in the advisory list.
+- Any removable drive counts as the stick (even a new empty one). Names written to the form are plain ASCII (max 24 characters), which is what the terminal accepts.
+- Plug-in order: terminal people first, then punches, then the student list is written. Students and parents are notified of new punches. The panel shows what was done (students written, punches read, errors in words).
+- First time: copy the terminal's own export (`Employee Form.xls`) to the stick and plug it in once, so the app knows which IDs the terminal already uses.
+
+## Speed and double taps
+Screens that used to wait for the network now show the saved copy first and replace it when fresh data arrives (Room, teacher classes/schedule, teacher names). Opening a screen ignores repeated taps for about a second, and "open chat" actions run once at a time.

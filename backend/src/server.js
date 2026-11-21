@@ -4,6 +4,7 @@ const { nextId } = require('./services/ids');
 const { ingestLogs, closeDay, relinkPunches, processClosures } = require('./services/attendance');
 const { applyDueCancellations } = require('./services/noclass');
 const { parseEmployeeForm, } = require('./services/biometric');
+const { prepare: prepareDevice, autoLinkByName, cleanName } = require('./services/deviceSync');
 const { buildEmployeeForm } = require('./services/xlsWriter');
 const { notify } = require('./services/notify');
 const mountClasses = require('./routes/classes');
@@ -227,7 +228,7 @@ app.post('/api/usb/ingest', teacherOnly, up.fields([{ name: 'logs', maxCount: 1 
   const out = {}; if (q.files?.logs) out.attendance = await ingestLogs(sb, q.files.logs[0].buffer.toString('utf8'));
   if (q.files?.employee) { const ppl = parseEmployeeForm(q.files.employee[0].buffer);
     if (ppl.length) await sb.from('device_people').upsert(ppl.map(p => ({ biometric_id: p.biometric_id, name: p.name, dept_no: p.dept_no, last_seen: new Date().toISOString() })), { onConflict: 'biometric_id' });
-    out.device_people = ppl.length; }
+    out.device_people = ppl.length; out.linked = (await autoLinkByName(sb)).linked; }
   r.json(out); }));
 // Attach a device ID that already exists on the terminal to a student or teacher (or detach it)
 app.post('/api/device/link', teacherOnly, wrap(async (q, r) => {
@@ -243,19 +244,20 @@ app.post('/api/device/unlink', teacherOnly, wrap(async (q, r) => {
   await sb.from('students').update({ biometric_id: null }).eq('id', q.body.id); r.json({ ok: true }); }));
 app.get('/api/usb/state', teacherOnly, wrap(async (_q, r) => r.json((await sb.from('usb_sync_state').select('*').eq('id', 1).single()).data)));
 app.get('/api/usb/employee-form', teacherOnly, wrap(async (_q, r) => {
+  const prep = await prepareDevice(sb);                                    // link terminal people to students by name, give every other student a device ID
   const [{ data: st }, { data: se }, { data: sc }] = await Promise.all([
     sb.from('students').select('biometric_id,first_name,last_name,sections!section_id(biometric_dept_no)').eq('status', 'enrolled').not('biometric_id', 'is', null),
     sb.from('sections').select('name,biometric_dept_no'),
     sb.from('schedules').select('day_of_week,start_time,end_time,sections(biometric_dept_no)')]);
   const { data: dev } = await sb.from('device_people').select('*');
   const linked = new Set(st.map(x => x.biometric_id));
-  const people = [...(dev || []).filter(d => !linked.has(d.biometric_id)).map(d => ({ biometric_id: d.biometric_id, name: (d.name || '').slice(0, 24), dept_no: d.dept_no })),
-    ...st.map(s => ({ biometric_id: s.biometric_id, name: `${s.first_name} ${s.last_name}`.slice(0, 24), dept_no: s.sections?.biometric_dept_no || null })),
+  const people = [...(dev || []).filter(d => !linked.has(d.biometric_id)).map(d => ({ biometric_id: d.biometric_id, name: cleanName(d.name || ''), dept_no: d.dept_no })),
+    ...st.map(s => ({ biometric_id: s.biometric_id, name: cleanName(`${s.first_name} ${s.last_name}`) || 'Student', dept_no: s.sections?.biometric_dept_no || null })),
     ].sort((a, b) => a.biometric_id - b.biometric_id);
   const { buffer, shifts } = buildEmployeeForm({ people, sections: se.map(s => ({ dept_no: s.biometric_dept_no, name: s.name })),
     slots: sc.filter(s => s.sections).map(s => ({ dept_no: s.sections.biometric_dept_no, day_of_week: s.day_of_week, start: s.start_time.slice(0, 5), end: s.end_time.slice(0, 5) })), start: new Date() });
   const { data: stt } = await sb.from('usb_sync_state').select('version').eq('id', 1).single();
-  r.set({ 'Content-Type': 'application/vnd.ms-excel', 'X-Sync-Version': String(stt.version), 'X-Shifts-Used': String(shifts.length) }).send(buffer); }));
+  r.set({ 'Content-Type': 'application/vnd.ms-excel', 'X-Sync-Version': String(stt.version), 'X-Shifts-Used': String(shifts.length), 'X-Students': String(st.length), 'X-People': String(people.length), 'X-Linked': String(prep.linked), 'X-Assigned': String(prep.assigned) }).send(buffer); }));
 app.post('/api/usb/written', teacherOnly, wrap(async (q, r) => { await sb.from('usb_sync_state').update({ dirty: false }).eq('id', 1).lte('version', q.body.version); r.json({ ok: true }); }));
 app.post('/api/attendance/close-day', teacherOnly, wrap(async (q, r) => r.json(await closeDay(sb, q.body.date || new Date(Date.now() + 8 * 36e5).toISOString().slice(0, 10)))));
 

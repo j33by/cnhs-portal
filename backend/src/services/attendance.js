@@ -41,7 +41,9 @@ async function ingestLogs(sb, text) {
   const names = new Map(); for (const p of punches) if (p.name) names.set(p.biometric_id, p.name);
   await sb.from('device_people').upsert([...new Set(punches.map(p => p.biometric_id))].map(id => ({ biometric_id: id, last_seen: new Date().toISOString(), ...(names.has(id) ? { name: names.get(id) } : {}) })), { onConflict: 'biometric_id' });
 
-  const { data: stu } = await sb.from('students').select('id,biometric_id,first_name,section_id,sections!section_id(name)').not('biometric_id', 'is', null);
+  await require('./deviceSync').autoLinkByName(sb).catch(() => {});         // people already on the terminal are matched to students by name first
+  const { data: stu, error: stuErr } = await sb.from('students').select('id,biometric_id,first_name,section_id,sections!section_id(name)').not('biometric_id', 'is', null);
+  if (stuErr) throw stuErr;
   const sMap = new Map(stu.map(s => [s.biometric_id, s]));
   const rows = punches.map(p => ({ biometric_id: p.biometric_id, device_id: p.device_id, punched_at: `${p.date}T${p.time}+08:00`, student_id: sMap.get(p.biometric_id)?.id || null, _date: p.date }));
   const fresh = [];
