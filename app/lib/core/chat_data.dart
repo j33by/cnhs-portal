@@ -12,11 +12,11 @@ class ChatData {
   static const reactions = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
   /// Classmates (names), adviser and subject teachers of my section. Shows the last saved answer while offline.
-  static Future<Map<String, dynamic>> roster({String? sectionId}) async {
+  static Future<Map<String, dynamic>> roster({String? sectionId, void Function(Map<String, dynamic>)? onFresh}) async {
     final r = await cachedRow('room_roster|${sectionId ?? 'mine'}', () async {
       final v = await sb.rpc('room_roster', params: sectionId == null ? null : {'p_section': sectionId});
       return v is Map ? Map<String, dynamic>.from(v) : <String, dynamic>{};
-    });
+    }, fast: true, onFresh: onFresh);         // saved copy at once, replaced by the live one when it arrives
     return r ?? <String, dynamic>{};
   }
 
@@ -39,8 +39,8 @@ class ChatData {
       };
 
   /// Teachers: colleagues who share a section with me + my sections (each section has a teachers-only group chat).
-  static Future<Map<String, dynamic>> directory() async {
-    final r = await cachedRow('staff_directory', () async { final v = await sb.rpc('staff_directory'); return v is Map ? Map<String, dynamic>.from(v) : <String, dynamic>{}; });
+  static Future<Map<String, dynamic>> directory({void Function(Map<String, dynamic>)? onFresh}) async {
+    final r = await cachedRow('staff_directory', () async { final v = await sb.rpc('staff_directory'); return v is Map ? Map<String, dynamic>.from(v) : <String, dynamic>{}; }, fast: true, onFresh: onFresh);
     return r ?? <String, dynamic>{};
   }
   /// Fires when teaching assignments change, so the teacher lists refresh by themselves.

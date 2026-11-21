@@ -324,7 +324,7 @@ class _MessageRow extends StatelessWidget {
         ),
         if (images.isNotEmpty) Padding(padding: EdgeInsets.only(bottom: body.isNotEmpty || files.isNotEmpty ? 6 : 0), child: Wrap(spacing: 4, runSpacing: 4, children: [
           for (var i = 0; i < images.length; i++) GestureDetector(
-            onTap: () => Navigator.push(c, MaterialPageRoute(builder: (_) => ImageViewer(urls: images, start: i))),
+            onTap: () => pushOnce(c, MaterialPageRoute(builder: (_) => ImageViewer(urls: images, start: i))),
             child: ClipRRect(borderRadius: BorderRadius.circular(imageOnly ? 14 : 10), child: SizedBox(
               width: images.length == 1 ? 220 : 108, height: images.length == 1 ? 220 : 108,
               child: Image(image: CachedNetImage(images[i]), fit: BoxFit.cover,

@@ -68,7 +68,7 @@ class _TeacherHomeState extends State<TeacherHome> {
   @override
   void dispose() { _alerts?.cancel(); usb.dispose(); TeacherData.i.stop(); super.dispose(); }
 
-  void _openClass(Map<String, dynamic> cls) => Navigator.push(context, MaterialPageRoute(builder: (_) => ClassScreen.from(cls)));
+  void _openClass(Map<String, dynamic> cls) => pushOnce(context, MaterialPageRoute(builder: (_) => ClassScreen.from(cls)));
 
   Widget _icon(_Tab t, bool selected) {
     final icon = Icon(selected ? t.selectedIcon : t.icon);

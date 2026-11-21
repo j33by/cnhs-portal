@@ -95,7 +95,7 @@ class _NotificationsViewState extends State<NotificationsView> {
 /// Open the chat an alert is about (private chat, or the Group tab).
 void openChatAlert(BuildContext c, Map<String, dynamic> n) {
   final d = n['data'] is Map ? n['data'] as Map : const {};
-  if (d['thread_kind'] == 'staff' && d['thread_id'] != null) { Navigator.push(c, MaterialPageRoute(builder: (_) => StaffGroupScreen(threadId: '${d['thread_id']}', title: '${n['title']}'.split(' · ').first))); }
-  else if (d['thread_kind'] == 'group') { Navigator.push(c, MaterialPageRoute(builder: (_) => const MessagesScreen(initialTab: 1))); }
-  else if (d['thread_id'] != null) { Navigator.push(c, MaterialPageRoute(builder: (_) => ChatScreen(threadId: '${d['thread_id']}', name: '${d['sender_name'] ?? 'Chat'}', photo: d['sender_photo'] as String?))); }
+  if (d['thread_kind'] == 'staff' && d['thread_id'] != null) { pushOnce(c, MaterialPageRoute(builder: (_) => StaffGroupScreen(threadId: '${d['thread_id']}', title: '${n['title']}'.split(' · ').first))); }
+  else if (d['thread_kind'] == 'group') { pushOnce(c, MaterialPageRoute(builder: (_) => const MessagesScreen(initialTab: 1))); }
+  else if (d['thread_id'] != null) { pushOnce(c, MaterialPageRoute(builder: (_) => ChatScreen(threadId: '${d['thread_id']}', name: '${d['sender_name'] ?? 'Chat'}', photo: d['sender_photo'] as String?))); }
 }

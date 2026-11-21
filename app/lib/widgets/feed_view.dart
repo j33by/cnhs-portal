@@ -67,7 +67,7 @@ class _FeedViewState extends State<FeedView> {
   Widget _sectionComposer(BuildContext c) {
     final cs = Theme.of(c).colorScheme;
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      InkWell(borderRadius: BorderRadius.circular(16), onTap: () => Navigator.push(c, MaterialPageRoute(builder: (_) => const StudentPostComposer())),
+      InkWell(borderRadius: BorderRadius.circular(16), onTap: () => pushOnce(c, MaterialPageRoute(builder: (_) => const StudentPostComposer())),
         child: Container(padding: const EdgeInsets.fromLTRB(14, 12, 14, 12), decoration: BoxDecoration(color: cs.surface, borderRadius: BorderRadius.circular(16), border: Border.all(color: Theme.of(c).dividerColor.withValues(alpha: .5))),
           child: Row(children: [
             Icon(Icons.edit_outlined, color: cs.primary), const SizedBox(width: 12),
@@ -91,7 +91,7 @@ class _FeedViewState extends State<FeedView> {
   Widget build(BuildContext c) => Scaffold(
         backgroundColor: Colors.transparent,
         floatingActionButton: widget.canPost ? FloatingActionButton.extended(
-          onPressed: () => Navigator.push(c, MaterialPageRoute(builder: (_) => const PostComposer())),
+          onPressed: () => pushOnce(c, MaterialPageRoute(builder: (_) => const PostComposer())),
           icon: const Icon(Icons.edit_outlined), label: const Text('New post')) : null,
         body: StreamBuilder<List<Map<String, dynamic>>>(stream: _posts, builder: (c, ps) => StreamBuilder<List<Map<String, dynamic>>>(stream: _mine, builder: (c, ms) {
           if (!ps.hasData) { return const Center(child: CircularProgressIndicator()); }
@@ -154,7 +154,7 @@ class _PostCardState extends State<PostCard> {
   Future<void> _menu(String v) async {
     try {
       if (v == 'pin') { await Api.patch('/api/posts/${p['id']}', {'pinned': p['pinned'] != true}); }
-      else if (v == 'edit') { if (mounted) { await Navigator.push(context, MaterialPageRoute(builder: (_) => p['section_post_of'] != null ? StudentPostComposer(existing: p) : PostComposer(existing: p))); } }
+      else if (v == 'edit') { if (mounted) { await pushOnce(context, MaterialPageRoute(builder: (_) => p['section_post_of'] != null ? StudentPostComposer(existing: p) : PostComposer(existing: p))); } }
       else if (v == 'delete') {
         final ok = await showDialog<bool>(context: context, builder: (c) => AlertDialog(title: const Text('Delete this post?'), content: const Text('It disappears for everyone, together with its comments and reactions.'),
             actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Delete'))]));
@@ -336,7 +336,7 @@ class PostImages extends StatelessWidget {
   const PostImages(this.urls, {super.key});
 
   Widget _img(BuildContext c, int i, {BoxFit fit = BoxFit.cover, int extra = 0}) => GestureDetector(
-        onTap: () => Navigator.push(c, MaterialPageRoute(builder: (_) => ImageViewer(urls: urls, start: i))),
+        onTap: () => pushOnce(c, MaterialPageRoute(builder: (_) => ImageViewer(urls: urls, start: i))),
         child: Stack(fit: StackFit.expand, children: [
           Image(image: CachedNetImage(urls[i]), fit: fit, frameBuilder: (_, child, frame, sync) => frame == null && !sync ? Container(color: Theme.of(c).colorScheme.surfaceContainerHighest) : child, errorBuilder: (_, __, ___) => Container(color: Theme.of(c).colorScheme.surfaceContainerHighest, child: const Icon(Icons.broken_image_outlined))),
           if (extra > 0) Container(color: Colors.black54, alignment: Alignment.center, child: Text('+$extra', style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold))),

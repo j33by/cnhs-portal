@@ -19,7 +19,7 @@ class SectionScreen extends StatelessWidget {
   final Map<String, dynamic> section; const SectionScreen({super.key, required this.section});
   @override
   Widget build(BuildContext c) => DefaultTabController(length: 3, child: Scaffold(
-        appBar: AppBar(title: Text('Advisory · Grade ${section['grade_level']} ${section['name']}'), actions: [IconButton(tooltip: 'Room', icon: const Icon(Icons.meeting_room_outlined), onPressed: () => Navigator.push(c, MaterialPageRoute(builder: (_) => RoomScreen(sectionId: '${section['id']}'))))], bottom: const TabBar(tabs: [Tab(text: 'Students'), Tab(text: 'Schedule'), Tab(text: 'Homeroom')])),
+        appBar: AppBar(title: Text('Advisory · Grade ${section['grade_level']} ${section['name']}'), actions: [IconButton(tooltip: 'Room', icon: const Icon(Icons.meeting_room_outlined), onPressed: () => pushOnce(c, MaterialPageRoute(builder: (_) => RoomScreen(sectionId: '${section['id']}'))))], bottom: const TabBar(tabs: [Tab(text: 'Students'), Tab(text: 'Schedule'), Tab(text: 'Homeroom')])),
         body: TabBarView(children: [KeepTabAlive(child: _Students(section['id'])), KeepTabAlive(child: _Schedule(section['id'])), KeepTabAlive(child: HomeroomTab(sectionId: section['id']))])));
 }
 
@@ -36,7 +36,7 @@ class _Students extends StatelessWidget {
               IconButton(icon: const Icon(Icons.fingerprint), tooltip: 'Link existing device ID', onPressed: () => linkDeviceDialog(c, studentId: x['id'], studentName: '${x['first_name']} ${x['last_name']}')),
               IconButton(icon: const Icon(Icons.edit), onPressed: () async { final a = await _ask(c, 'Edit address', 'Address'); if (a != null && c.mounted) _run(c, Api.patch('/api/students/${x['id']}', {'address': a})); }),
               IconButton(icon: const Icon(Icons.person_remove, color: Colors.red), onPressed: () => _run(c, Api.delete('/api/sections/$sid/students/${x['id']}')))]),
-            onTap: () => Navigator.push(c, MaterialPageRoute(builder: (_) => Scaffold(appBar: AppBar(title: Text('${x['first_name']} attendance')), body: AttendanceView(x['id'])))))])),
+            onTap: () => pushOnce(c, MaterialPageRoute(builder: (_) => Scaffold(appBar: AppBar(title: Text('${x['first_name']} attendance')), body: AttendanceView(x['id'])))))])),
       );
 }
 

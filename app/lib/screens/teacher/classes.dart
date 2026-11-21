@@ -16,6 +16,7 @@ import 'grades_tab.dart';
 import 'homeroom_tab.dart';
 import 'record_tab.dart';
 import '../student/room_screen.dart';
+import '../../core/offline.dart';
 
 String classKey(Map<String, dynamic> c) => c['kind'] == 'advisory' ? '${c['section_id']}|advisory' : '${c['section_id']}|${c['subject_id']}';
 String classTitle(Map<String, dynamic> c) => '${c['subject']} · Grade ${c['grade']} ${c['section']}';
@@ -62,7 +63,7 @@ class _MyClassesState extends State<MyClasses> {
 
   void _open(Map<String, dynamic> x, bool wide) {
     if (wide) { setState(() => selected = x); return; }
-    Navigator.push(context, MaterialPageRoute(builder: (_) => _screenFor(x)));
+    pushOnce(context, MaterialPageRoute(builder: (_) => _screenFor(x)));
   }
 
   Future<void> _add(bool wide) async {
@@ -132,7 +133,7 @@ class _MyClassesState extends State<MyClasses> {
     );
   }
 
-  void _openSubjects() => Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(appBar: AppBar(title: const Text('My subjects')), body: const MySubjects())));
+  void _openSubjects() => pushOnce(context, MaterialPageRoute(builder: (_) => Scaffold(appBar: AppBar(title: const Text('My subjects')), body: const MySubjects())));
   Widget _subjectsButton() => FilledButton.tonalIcon(
         onPressed: _openSubjects, icon: const Icon(Icons.library_books_outlined, size: 18), label: const Text('My subjects'),
         style: FilledButton.styleFrom(visualDensity: VisualDensity.compact, padding: const EdgeInsets.symmetric(horizontal: 14)));
@@ -194,7 +195,7 @@ class ClassScreen extends StatelessWidget {
         child: Scaffold(
           appBar: AppBar(
             title: Text(title, style: const TextStyle(fontSize: 16)),
-            actions: [IconButton(tooltip: 'Room', icon: const Icon(Icons.meeting_room_outlined), onPressed: () => Navigator.push(c, MaterialPageRoute(builder: (_) => RoomScreen(sectionId: sectionId)))), PopupMenuButton<String>(
+            actions: [IconButton(tooltip: 'Room', icon: const Icon(Icons.meeting_room_outlined), onPressed: () => pushOnce(c, MaterialPageRoute(builder: (_) => RoomScreen(sectionId: sectionId)))), PopupMenuButton<String>(
               onSelected: (v) async {
                 if (v == 'remove' && await removeClass(c, sectionId, subjectId, title)) { if (onRemoved != null) { onRemoved!(); } else if (c.mounted) { Navigator.pop(c); } }
               },

@@ -167,7 +167,7 @@ class _AttendanceViewState extends State<AttendanceView> {
             _summary(rows),
             if (widget.showSubjects && widget.sectionId != null) Padding(padding: const EdgeInsets.only(top: 10), child: OutlinedButton.icon(
               style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(46), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
-              onPressed: () => Navigator.push(c, MaterialPageRoute(builder: (_) => SubjectAttendanceScreen(studentId: widget.studentId, sectionId: widget.sectionId, studentName: widget.studentName ?? 'Student'))),
+              onPressed: () => pushOnce(c, MaterialPageRoute(builder: (_) => SubjectAttendanceScreen(studentId: widget.studentId, sectionId: widget.sectionId, studentName: widget.studentName ?? 'Student'))),
               icon: const Icon(Icons.fact_check_outlined), label: const Text('View attendance by subject'))),
             const SizedBox(height: 16), const SectionTitle('Calendar', icon: Icons.calendar_month),
             _calendar(by), const SizedBox(height: 10), _detail(by),
@@ -224,7 +224,7 @@ class _TodayAttendanceCardState extends State<TodayAttendanceCard> {
             if (widget.sectionId != null) ...[
               const SizedBox(width: 8),
               Expanded(child: OutlinedButton.icon(
-                onPressed: () => Navigator.push(c, MaterialPageRoute(builder: (_) => SubjectAttendanceScreen(studentId: widget.studentId, sectionId: widget.sectionId, studentName: widget.name))),
+                onPressed: () => pushOnce(c, MaterialPageRoute(builder: (_) => SubjectAttendanceScreen(studentId: widget.studentId, sectionId: widget.sectionId, studentName: widget.name))),
                 icon: const Icon(Icons.fact_check_outlined, size: 18), label: const Text('By subject'))),
             ],
           ]),

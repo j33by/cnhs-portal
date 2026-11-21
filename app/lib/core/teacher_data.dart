@@ -40,17 +40,17 @@ class TeacherData extends ChangeNotifier {
     final uid = _uid;
     if (uid == null) { return; }
     try {
-      final ss = await cachedRows('td:ss', () => sb.from('section_subjects').select('section_id,subject_id').eq('teacher_id', uid));
-      final adv = await cachedRows('td:adv', () => sb.from('sections').select('id').eq('adviser_id', uid));
+      final ss = await cachedRows('td:ss', () => sb.from('section_subjects').select('section_id,subject_id').eq('teacher_id', uid), fast: true, onFresh: (_) => _soon());
+      final adv = await cachedRows('td:adv', () => sb.from('sections').select('id').eq('adviser_id', uid), fast: true, onFresh: (_) => _soon());
       final advIds = {for (final x in adv) x['id'] as String};
       final secIds = {...advIds, for (final x in ss) x['section_id'] as String}.toList();
       if (secIds.isEmpty) { classes = []; advisories = []; slots = []; loaded = true; notifyListeners(); return; }
       final subIds = {for (final x in ss) x['subject_id'] as String}.toList();
       final r = await Future.wait<List<Map<String, dynamic>>>([
-        cachedRows('td:sec', () => sb.from('sections').select('id,grade_level,name,homeroom,grading_term').inFilter('id', secIds)),
-        subIds.isEmpty ? Future.value(<Map<String, dynamic>>[]) : cachedRows('td:sub', () => sb.from('subjects').select('id,code,name').inFilter('id', subIds)),
-        cachedRows('td:sched', () => sb.from('schedules').select('id,section_id,subject_id,day_of_week,start_time,end_time,room').eq('teacher_id', uid)),
-        cachedRows('td:count', () => sb.from('students').select('section_id').inFilter('section_id', secIds).eq('status', 'enrolled')),
+        cachedRows('td:sec', () => sb.from('sections').select('id,grade_level,name,homeroom,grading_term').inFilter('id', secIds), fast: true, onFresh: (_) => _soon()),
+        subIds.isEmpty ? Future.value(<Map<String, dynamic>>[]) : cachedRows('td:sub', () => sb.from('subjects').select('id,code,name').inFilter('id', subIds), fast: true, onFresh: (_) => _soon()),
+        cachedRows('td:sched', () => sb.from('schedules').select('id,section_id,subject_id,day_of_week,start_time,end_time,room').eq('teacher_id', uid), fast: true, onFresh: (_) => _soon()),
+        cachedRows('td:count', () => sb.from('students').select('section_id').inFilter('section_id', secIds).eq('status', 'enrolled'), fast: true, onFresh: (_) => _soon()),
       ]);
       final secs = {for (final x in r[0]) x['id'] as String: x}, subs = {for (final x in r[1]) x['id'] as String: x};
       final count = <String, int>{};

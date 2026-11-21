@@ -14,7 +14,7 @@ mixin _Directory<T extends StatefulWidget> on State<T> {
   Map<String, dynamic> dir = {}; bool dirLoaded = false; StreamSubscription<dynamic>? _ds;
   List<Map<String, dynamic>> get people => [for (final p in (dir['people'] as List? ?? const [])) Map<String, dynamic>.from(p as Map)];
   List<Map<String, dynamic>> get sections => [for (final p in (dir['sections'] as List? ?? const [])) Map<String, dynamic>.from(p as Map)];
-  Future<void> loadDir() async { try { final d = await ChatData.directory(); if (mounted) { setState(() { dir = d; dirLoaded = true; }); } } catch (_) { if (mounted) { setState(() => dirLoaded = true); } } }
+  Future<void> loadDir() async { try { final d = await ChatData.directory(onFresh: (f) { if (mounted) { setState(() => dir = f); } }); if (mounted) { setState(() { dir = d; dirLoaded = true; }); } } catch (_) { if (mounted) { setState(() => dirLoaded = true); } } }
   void watchDir() { loadDir(); _ds = ChatData.assignmentChanges().listen((_) => loadDir(), onError: (_) {}); }
   void unwatchDir() { _ds?.cancel(); }
   List<Map<String, dynamic>> get students => [for (final p in (dir['students'] as List? ?? const [])) Map<String, dynamic>.from(p as Map)];
@@ -38,21 +38,21 @@ class _TeacherMessagesState extends State<TeacherMessagesScreen> with SingleTick
 
   Map<String, dynamic>? _person(String id) { for (final p in [...people, ...students]) { if (p['id'] == id) { return p; } } return null; }
 
-  Future<void> _open(Map<String, dynamic> p) async {
+  Future<void> _open(Map<String, dynamic> p) async => once('open-chat', () async {
     try {
       final id = await ChatData.openPrivate('${p['id']}');
       if (!mounted) { return; }
-      Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(threadId: id, name: fullName(p), photo: p['photo_url'] as String?)));
+      pushOnce(context, MaterialPageRoute(builder: (_) => ChatScreen(threadId: id, name: fullName(p), photo: p['photo_url'] as String?)));
     } catch (e) { toastError(e); }
-  }
+  });
 
-  Future<void> _openStaff(Map<String, dynamic> s) async {
+  Future<void> _openStaff(Map<String, dynamic> s) async => once('open-chat', () async {
     try {
       final id = await ChatData.openStaff('${s['id']}');
       if (!mounted) { return; }
-      Navigator.push(context, MaterialPageRoute(builder: (_) => StaffGroupScreen(threadId: id, title: '${sectionLabel(s)} · Teachers')));
+      pushOnce(context, MaterialPageRoute(builder: (_) => StaffGroupScreen(threadId: id, title: '${sectionLabel(s)} · Teachers')));
     } catch (e) { toastError(e); }
-  }
+  });
 
   Future<void> _newMessage() async {
     final pick = await showModalBottomSheet<Map<String, dynamic>>(context: context, isScrollControlled: true, showDragHandle: true, builder: (c) => _PersonPicker(people: people, students: students, sections: sections));
@@ -84,7 +84,7 @@ class _TeacherMessagesState extends State<TeacherMessagesScreen> with SingleTick
           final t = list[i], other = '${t['user_a']}' == myUid ? '${t['user_b']}' : '${t['user_a']}', p = _person(other);
           final name = p == null ? 'Teacher' : fullName(p), unread = ChatData.isUnread(t, read), when = DateTime.tryParse('${t['last_message_at']}')?.toLocal();
           return ListTile(
-            onTap: () => Navigator.push(c, MaterialPageRoute(builder: (_) => ChatScreen(threadId: '${t['id']}', name: name, photo: p?['photo_url'] as String?))),
+            onTap: () => pushOnce(c, MaterialPageRoute(builder: (_) => ChatScreen(threadId: '${t['id']}', name: name, photo: p?['photo_url'] as String?))),
             leading: PersonAvatar(url: p?['photo_url'] as String?, name: name, radius: 24),
             title: Text(name, style: TextStyle(fontWeight: unread ? FontWeight.w700 : FontWeight.w500)),
             subtitle: Text('${t['last_sender_id'] == myUid ? 'You: ' : ''}${t['last_preview']}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: unread ? FontWeight.w600 : FontWeight.normal)),
@@ -148,7 +148,7 @@ class _TeacherRoomsState extends State<TeacherRoomsScreen> with _Directory<Teach
           : secs.isEmpty ? const EmptyState(icon: Icons.meeting_room_outlined, title: 'No rooms yet', message: 'You get a room for every section you advise or teach.')
           : RefreshIndicator(onRefresh: loadDir, child: ListView(padding: const EdgeInsets.all(16), children: [
               for (final s in secs) Padding(padding: const EdgeInsets.only(bottom: 10), child: SoftCard(child: InkWell(
-                borderRadius: BorderRadius.circular(16), onTap: () => Navigator.push(c, MaterialPageRoute(builder: (_) => RoomScreen(sectionId: '${s['id']}'))),
+                borderRadius: BorderRadius.circular(16), onTap: () => pushOnce(c, MaterialPageRoute(builder: (_) => RoomScreen(sectionId: '${s['id']}'))),
                 child: Row(children: [
                   CircleAvatar(radius: 22, backgroundColor: cs.primaryContainer, child: Icon(Icons.meeting_room_outlined, color: cs.primary)), const SizedBox(width: 14),
                   Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

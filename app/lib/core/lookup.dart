@@ -33,7 +33,7 @@ class Lookup extends ChangeNotifier {
     if (_refreshing) return;
     _refreshing = true;
     try {
-      final r = await cachedRows('teacher_names', () => sb.from('teacher_names').select('id,first_name,last_name'));
+      final r = await cachedRows('teacher_names', () => sb.from('teacher_names').select('id,first_name,last_name'), fast: true);
       teachers..clear()..addAll({for (final x in r) x['id'] as String: '${x['first_name']} ${x['last_name']}'});
       notifyListeners();
     } catch (_) {}

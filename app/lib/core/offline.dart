@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show BuildContext, Route;
+import 'package:flutter/widgets.dart' show Navigator;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'api.dart';
@@ -103,19 +105,49 @@ Stream<JRows> liveStream(String key, Stream<JRows> Function() build) {
 }
 
 /// One-off query: online -> fetch (and remember); offline or failed -> the last saved answer.
-Future<JRows> cachedRows(String key, Future<JRows> Function() fetch) async {
-  if (!Net.i.online) { final c = LocalCache.rows(key); if (c != null) { return c; } }
-  try { final r = await fetch().timeout(const Duration(seconds: 15)); LocalCache.write(key, r); return r; }
-  catch (e) { final c = LocalCache.rows(key); if (c != null) { return c; } rethrow; }
+/// Network first (up to 15 s), the saved copy only when offline or failing.
+/// [fast] = saved copy first: if a saved copy exists it is returned at once (screens open instantly) while the fresh data loads in the
+/// background; [onFresh] is called when the fresh data differs, so the screen can replace what it showed.
+Future<JRows> cachedRows(String key, Future<JRows> Function() fetch, {bool fast = false, void Function(JRows fresh)? onFresh}) async {
+  final c = LocalCache.rows(key);
+  if (!Net.i.online && c != null) { return c; }
+  final f = fetch().timeout(const Duration(seconds: 15)).then((r) { LocalCache.write(key, r); return r; });
+  if (fast && c != null) {
+    unawaited(f.then((r) { if (jsonEncode(r) != jsonEncode(c)) { onFresh?.call(r); } }).catchError((_) {}));
+    return c;
+  }
+  try { return await f; } catch (e) { if (c != null) { return c; } rethrow; }
 }
 
-Future<Map<String, dynamic>?> cachedRow(String key, Future<Map<String, dynamic>?> Function() fetch) async {
-  if (!Net.i.online) { final c = LocalCache.row(key); if (c != null) { return c; } }
+Future<Map<String, dynamic>?> cachedRow(String key, Future<Map<String, dynamic>?> Function() fetch, {bool fast = false, void Function(Map<String, dynamic> fresh)? onFresh}) async {
+  final c = LocalCache.row(key);
+  if (!Net.i.online && c != null) { return c; }
+  final f = fetch().timeout(const Duration(seconds: 15));
+  if (fast && c != null) {
+    unawaited(f.then((r) { if (r != null) { LocalCache.write(key, r); if (jsonEncode(r) != jsonEncode(c)) { onFresh?.call(r); } } }).catchError((_) {}));
+    return c;
+  }
   try {
-    final r = await fetch().timeout(const Duration(seconds: 15));
-    if (r == null) { final c = LocalCache.row(key); if (c != null && sb.auth.currentSession == null) { return c; } }   // signed in from memory, session not restored yet
+    final r = await f;
+    if (r == null && c != null && sb.auth.currentSession == null) { return c; }   // signed in from memory, session not restored yet
     LocalCache.write(key, r); return r;
-  } catch (e) { final c = LocalCache.row(key); if (c != null) { return c; } rethrow; }
+  } catch (e) { if (c != null) { return c; } rethrow; }
+}
+
+/// Open a screen, but never twice from a double tap or a tap while the first one is still opening.
+DateTime _lastPush = DateTime(2000);
+Future<T?> pushOnce<T>(BuildContext context, Route<T> route) {
+  final now = DateTime.now();
+  if (now.difference(_lastPush).inMilliseconds < 900) { return Future.value(null); }
+  _lastPush = now;
+  return Navigator.push<T>(context, route);
+}
+
+/// Run an async action once at a time per [key] (ignores taps while it is still running).
+final _running = <String>{};
+Future<void> once(String key, Future<void> Function() action) async {
+  if (!_running.add(key)) { return; }
+  try { await action(); } finally { _running.remove(key); }
 }
 
 /// Sign out for real: forget the saved identity and the saved data, even with no internet.

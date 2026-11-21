@@ -38,13 +38,13 @@ class _MessagesScreenState extends State<MessagesScreen> with SingleTickerProvid
       ];
   Map<String, dynamic>? _person(String id) { for (final m in [..._mates, ..._teachers]) { if (m['id'] == id) { return m; } } return null; }
 
-  Future<void> _open(Map<String, dynamic> p) async {
+  Future<void> _open(Map<String, dynamic> p) async => once('open-chat', () async {
     try {
       final id = await ChatData.openPrivate('${p['id']}');
       if (!mounted) { return; }
-      Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(threadId: id, name: fullName(p), photo: p['photo_url'] as String?)));
+      pushOnce(context, MaterialPageRoute(builder: (_) => ChatScreen(threadId: id, name: fullName(p), photo: p['photo_url'] as String?)));
     } catch (e) { toastError(e); }
-  }
+  });
 
   Future<void> _newMessage() async {
     final others = _mates.where((m) => m['id'] != myUid).toList(), teachers = _teachers;
@@ -82,7 +82,7 @@ class _MessagesScreenState extends State<MessagesScreen> with SingleTickerProvid
           final when = DateTime.tryParse('${t['last_message_at']}')?.toLocal();
           final mineLast = t['last_sender_id'] == myUid;
           return ListTile(
-            onTap: () => Navigator.push(c, MaterialPageRoute(builder: (_) => ChatScreen(threadId: '${t['id']}', name: name, photo: p?['photo_url'] as String?))),
+            onTap: () => pushOnce(c, MaterialPageRoute(builder: (_) => ChatScreen(threadId: '${t['id']}', name: name, photo: p?['photo_url'] as String?))),
             leading: PersonAvatar(url: p?['photo_url'] as String?, name: name, radius: 24),
             title: Text(name, style: TextStyle(fontWeight: unread ? FontWeight.w700 : FontWeight.w500)),
             subtitle: Text('${mineLast ? 'You: ' : ''}${t['last_preview']}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: unread ? FontWeight.w600 : FontWeight.normal)),

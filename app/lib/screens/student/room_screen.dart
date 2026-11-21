@@ -35,26 +35,26 @@ class _RoomScreenState extends State<RoomScreen> {
   @override
   void dispose() { _tick?.cancel(); _live?.cancel(); VoicePlayer.i.stop(quiet: true); super.dispose(); }
   Future<void> _load() async {
-    try { final r = await ChatData.roster(sectionId: widget.sectionId); if (mounted) { setState(() { data = r; failed = false; }); } }
+    try { final r = await ChatData.roster(sectionId: widget.sectionId, onFresh: (f) { if (mounted) { setState(() => data = f); } }); if (mounted) { setState(() { data = r; failed = false; }); } }
     catch (_) { if (mounted && data == null) { setState(() => failed = true); } }
   }
 
-  Future<void> _message(Map<String, dynamic> p) async {
+  Future<void> _message(Map<String, dynamic> p) async => once('open-chat', () async {
     try {
       final id = await ChatData.openPrivate('${p['id']}');
       if (!mounted) { return; }
-      Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(threadId: id, name: fullName(p), photo: p['photo_url'] as String?)));
+      pushOnce(context, MaterialPageRoute(builder: (_) => ChatScreen(threadId: id, name: fullName(p), photo: p['photo_url'] as String?)));
     } catch (e) { toastError(e); }
-  }
+  });
 
-  Future<void> _group(String secId, String label) async {
+  Future<void> _group(String secId, String label) async => once('open-chat', () async {
     try {
-      if (!teacherView) { Navigator.push(context, MaterialPageRoute(builder: (_) => const MessagesScreen(initialTab: 1))); return; }
+      if (!teacherView) { pushOnce(context, MaterialPageRoute(builder: (_) => const MessagesScreen(initialTab: 1))); return; }
       final id = await ChatData.openStaff(secId);
       if (!mounted) { return; }
-      Navigator.push(context, MaterialPageRoute(builder: (_) => StaffGroupScreen(threadId: id, title: '$label · Teachers')));
+      pushOnce(context, MaterialPageRoute(builder: (_) => StaffGroupScreen(threadId: id, title: '$label · Teachers')));
     } catch (e) { toastError(e); }
-  }
+  });
 
   @override
   Widget build(BuildContext c) {
