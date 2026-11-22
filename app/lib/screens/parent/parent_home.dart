@@ -93,14 +93,36 @@ class _ParentHomeState extends State<ParentHome> {
             action: FilledButton.icon(onPressed: _dialog, icon: const Icon(Icons.person_add), label: const Text('Link a child'))),
       ]);
 
+  /// Long-press a child's name: a small menu offers "Remove", then a confirmation. Removing only stops YOUR view of the child.
+  Future<void> _childMenu(Map<String, dynamic> l, Offset at) async {
+    final pick = await showMenu<String>(context: context, position: RelativeRect.fromLTRB(at.dx, at.dy, at.dx, at.dy),
+        items: const [PopupMenuItem(value: 'remove', child: Row(children: [Icon(Icons.person_remove_outlined, size: 20), SizedBox(width: 10), Text('Remove')]))]);
+    if (pick != 'remove' || !mounted) { return; }
+    final name = _first(l);
+    final ok = await showDialog<bool>(context: context, builder: (d) => AlertDialog(
+      title: Text('Remove $name?'),
+      content: Text('You will no longer see $name\'s attendance, grades, schedule or alerts. To view $name again you must send a new link request and a teacher has to approve it.'),
+      actions: [TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Cancel')),
+        FilledButton(style: FilledButton.styleFrom(backgroundColor: Colors.red), onPressed: () => Navigator.pop(d, true), child: const Text('Remove'))]));
+    if (ok != true) { return; }
+    try {
+      await Api.delete('/api/parent/links/${l['student_id']}');
+      if (!mounted) { return; }
+      setState(() { links = links.where((x) => x['student_id'] != l['student_id']).toList(); if (selectedKid == l['student_id']) { selectedKid = null; } });
+      toast('$name removed from your list');
+    } catch (e) { toastError(e); }
+  }
+
   Widget _switcher(List<Map<String, dynamic>> approved, String sel) => Container(
         height: 62, width: double.infinity, color: Theme.of(context).colorScheme.surfaceContainerLow,
         child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10), children: [
-          for (final l in approved) Padding(padding: const EdgeInsets.only(right: 8), child: ChoiceChip(
-            selected: l['student_id'] == sel,
-            avatar: CircleAvatar(radius: 11, child: Text(_first(l).isEmpty ? '?' : _first(l)[0].toUpperCase(), style: const TextStyle(fontSize: 11))),
-            label: Text(_first(l)), onSelected: (_) => setState(() => selectedKid = l['student_id'] as String),
-          )),
+          for (final l in approved) Padding(padding: const EdgeInsets.only(right: 8), child: GestureDetector(
+            onLongPressStart: (d) => _childMenu(l, d.globalPosition),
+            child: ChoiceChip(
+              selected: l['student_id'] == sel,
+              avatar: CircleAvatar(radius: 11, child: Text(_first(l).isEmpty ? '?' : _first(l)[0].toUpperCase(), style: const TextStyle(fontSize: 11))),
+              label: Text(_first(l)), onSelected: (_) => setState(() => selectedKid = l['student_id'] as String),
+            ))),
         ]),
       );
 
@@ -122,7 +144,7 @@ class _ParentHomeState extends State<ParentHome> {
       builder: (c, u) => FamilyShell(
         selected: nav,
         actions: [IconButton(tooltip: 'Link a child', icon: Badge(isLabelVisible: pending > 0, label: Text('$pending'), child: const Icon(Icons.person_add_alt_1)), onPressed: _dialog)],
-        top: (id) => approved.length > 1 && (id == 'home' || id == 'attendance' || id == 'grades') ? _switcher(approved, sel!) : null,
+        top: (id) => approved.isNotEmpty && (id == 'home' || id == 'attendance' || id == 'grades') ? _switcher(approved, sel!) : null,
         tabs: [
           FamilyTab(id: 'home', label: 'Home', icon: Icons.home_outlined, selectedIcon: Icons.home, build: () => kid == null ? needChild() : FamilyHome(
               key: ValueKey('home-$sel'), parent: true, studentId: sel!, name: name, studentNo: '${kid['student_no']}', sectionId: sectionId, classLabel: label,
