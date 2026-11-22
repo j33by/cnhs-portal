@@ -34,8 +34,9 @@ async function recomputeDay(sb, stu, bio, date, { notifyUsers = true } = {}) {
   else if (d.time_out && d.time_out !== old.time_out) await notify(sb, who, { kind: 'attendance', title: `${stu.first_name} left school`, body: `Time out ${t12(d.time_out)}`, data });
 }
 
-async function ingestLogs(sb, text) {
-  const punches = parseLogs(text);
+async function ingestLogs(sb, text) { return ingestPunches(sb, parseLogs(text)); }
+
+async function ingestPunches(sb, punches) {
   if (!punches.length) return { punches: 0, newPunches: 0, notified: 0 };
   // remember everyone who exists on the terminal so their device IDs are never handed to a new student
   const names = new Map(); for (const p of punches) if (p.name) names.set(p.biometric_id, p.name);
@@ -45,6 +46,13 @@ async function ingestLogs(sb, text) {
   const { data: stu, error: stuErr } = await sb.from('students').select('id,biometric_id,first_name,section_id,sections!section_id(name)').not('biometric_id', 'is', null);
   if (stuErr) throw stuErr;
   const sMap = new Map(stu.map(s => [s.biometric_id, s]));
+  // the terminal's Excel report only has minutes: a punch already stored for the same minute (e.g. from the .txt export) is not added again
+  const ids = [...new Set(punches.map(p => p.biometric_id))], have = new Set();
+  const lo = punches.reduce((a, p) => p.date < a ? p.date : a, '9999'), hi = punches.reduce((a, p) => p.date > a ? p.date : a, '0000');
+  const { data: old } = await sb.from('attendance').select('biometric_id,punched_at').in('biometric_id', ids).gte('punched_at', `${lo}T00:00:00+08:00`).lte('punched_at', `${hi}T23:59:59+08:00`);
+  for (const o of old || []) { const q = phParts(o.punched_at); have.add(o.biometric_id + '|' + q.date + 'T' + q.time.slice(0, 5)); }
+  punches = punches.filter(p => !have.has(p.biometric_id + '|' + p.date + 'T' + p.time.slice(0, 5)));
+  if (!punches.length) return { punches: 0, newPunches: 0, notified: 0 };
   const rows = punches.map(p => ({ biometric_id: p.biometric_id, device_id: p.device_id, punched_at: `${p.date}T${p.time}+08:00`, student_id: sMap.get(p.biometric_id)?.id || null, _date: p.date }));
   const fresh = [];
   for (let i = 0; i < rows.length; i += 500) {                              // insert only unseen punches; .select() returns just the inserted ones
@@ -111,4 +119,4 @@ async function relinkPunches(sb, stu, bio) {
   const { data } = await sb.from('attendance').select('punched_at').eq('biometric_id', bio);
   for (const date of new Set((data || []).map(r => phParts(r.punched_at).date))) await recomputeDay(sb, stu, bio, date, { notifyUsers: false });
 }
-module.exports = { ingestLogs, closeDay, relinkPunches, parentsOf, parentsOfMany, processClosures, markSynced };
+module.exports = { ingestLogs, ingestPunches, closeDay, relinkPunches, parentsOf, parentsOfMany, processClosures, markSynced };

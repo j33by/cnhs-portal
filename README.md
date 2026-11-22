@@ -131,3 +131,9 @@ Run `backend/sql/019_teacher_student_chat.sql` (after 018). A teacher can messag
 
 ## Speed and double taps
 Screens that used to wait for the network now show the saved copy first and replace it when fresh data arrives (Room, teacher classes/schedule, teacher names). Opening a screen ignores repeated taps for about a second, and "open chat" actions run once at a time.
+
+## Terminal file names (real export)
+The terminal's files have **spaces, no underscores**: `Employee Form.xls`, `All Report.xls`, `001_UserInfo.dat`.
+- `Employee Form.xls` – written by the app with every student (layout, merged cells and rules block copied from the terminal's own export); upload it to the terminal.
+- `All Report.xls` – the terminal's attendance export (sheet *Attendance Logs*, minute precision). Read automatically when the USB is plugged in; punches mark present/late and notify students and parents. A punch already stored for the same minute is not added twice. `Attendance Logs*.txt` still works.
+- `001_UserInfo.dat` – fingerprint templates; only detected, never modified.

@@ -1,9 +1,9 @@
 const express = require('express'), cors = require('cors'), multer = require('multer');
 const { createClient } = require('@supabase/supabase-js');
 const { nextId } = require('./services/ids');
-const { ingestLogs, closeDay, relinkPunches, processClosures } = require('./services/attendance');
+const { ingestLogs, ingestPunches, closeDay, relinkPunches, processClosures } = require('./services/attendance');
 const { applyDueCancellations } = require('./services/noclass');
-const { parseEmployeeForm, } = require('./services/biometric');
+const { parseEmployeeForm, parseAllReport} = require('./services/biometric');
 const { prepare: prepareDevice, autoLinkByName, cleanName } = require('./services/deviceSync');
 const { buildEmployeeForm } = require('./services/xlsWriter');
 const { notify } = require('./services/notify');
@@ -224,8 +224,12 @@ mountRoom(app, { sb, wrap, bad, up });                                          
 mountClasses(app, { sb, wrap, bad, teacherOnly, curYear });   // class record, subject + homeroom attendance, grades
 
 // ============ USB / biometric sync (called by the Windows app) ============
-app.post('/api/usb/ingest', teacherOnly, up.fields([{ name: 'logs', maxCount: 1 }, { name: 'employee', maxCount: 1 }]), wrap(async (q, r) => {
-  const out = {}; if (q.files?.logs) out.attendance = await ingestLogs(sb, q.files.logs[0].buffer.toString('utf8'));
+app.post('/api/usb/ingest', teacherOnly, up.fields([{ name: 'logs', maxCount: 1 }, { name: 'employee', maxCount: 1 }, { name: 'report', maxCount: 1 }]), wrap(async (q, r) => {
+  const out = {};
+  if (q.files?.report) { const rep = parseAllReport(q.files.report[0].buffer);       // "All Report.xls" from the terminal
+    if (rep.people.length) await sb.from('device_people').upsert(rep.people.map(p => ({ biometric_id: p.biometric_id, ...(p.name ? { name: p.name } : {}), last_seen: new Date().toISOString() })), { onConflict: 'biometric_id' });
+    out.attendance = await ingestPunches(sb, rep.punches); out.report_people = rep.people.length; }
+  if (q.files?.logs) out.attendance = await ingestLogs(sb, q.files.logs[0].buffer.toString('utf8'));
   if (q.files?.employee) { const ppl = parseEmployeeForm(q.files.employee[0].buffer);
     if (ppl.length) await sb.from('device_people').upsert(ppl.map(p => ({ biometric_id: p.biometric_id, name: p.name, dept_no: p.dept_no, last_seen: new Date().toISOString() })), { onConflict: 'biometric_id' });
     out.device_people = ppl.length; out.linked = (await autoLinkByName(sb)).linked; }
