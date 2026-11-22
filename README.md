@@ -142,3 +142,6 @@ The terminal's files have **spaces, no underscores**: `Employee Form.xls`, `All 
 - The adviser opens the class → **Students** tab → **Leave advisory** (`POST /api/sections/:id/leave`). The section stays; its subject teachers are notified.
 - Any teacher of the section then sees **Become adviser** (`POST /api/sections/:id/claim`, first one wins) and the others are told who took over.
 - Everything updates live: the Homeroom tab appears/disappears, the adviser chip, "my advisory" lists, the student Room/Messages roster and the teacher directory (realtime on `sections` and `section_subjects`).
+
+## Parents: remove a child from the list
+Long-press a child's name in the bar at the top of Home / Attendance / Grades → **Remove** → confirm. `DELETE /api/parent/links/:student_id` deletes the link (alerts for that child stop at once; viewing the child again needs a new link request approved by a teacher). The bar now also shows with a single child so it can be removed.

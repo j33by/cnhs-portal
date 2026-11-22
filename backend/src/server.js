@@ -250,6 +250,12 @@ app.post('/api/device/ignore', teacherOnly, wrap(async (q, r) => {           // 
   await sb.from('device_people').update({ ignored: q.body.ignored !== false }).eq('biometric_id', q.body.biometric_id); r.json({ ok: true }); }));
 app.post('/api/device/unlink', teacherOnly, wrap(async (q, r) => {
   await sb.from('students').update({ biometric_id: null }).eq('id', q.body.id); r.json({ ok: true }); }));
+// A parent stops viewing a child (also cancels a pending / declined request). Alerts about that child stop at once; linking again needs a teacher's approval.
+app.delete('/api/parent/links/:student_id', wrap(async (q, r) => {
+  if (q.profile?.role !== 'parent') throw bad('Parents only', 403);
+  const { data, error } = await sb.from('parent_links').delete().eq('parent_id', q.user.id).eq('student_id', q.params.student_id).select('id');
+  if (error) throw error; if (!data?.length) throw bad('That child is not in your list', 404); r.json({ ok: true });
+}));
 app.get('/api/usb/state', teacherOnly, wrap(async (_q, r) => r.json((await sb.from('usb_sync_state').select('*').eq('id', 1).single()).data)));
 app.get('/api/usb/employee-form', teacherOnly, wrap(async (_q, r) => {
   const prep = await prepareDevice(sb);                                    // link terminal people to students by name, give every other student a device ID
