@@ -137,3 +137,8 @@ The terminal's files have **spaces, no underscores**: `Employee Form.xls`, `All 
 - `Employee Form.xls` – written by the app with every student (layout, merged cells and rules block copied from the terminal's own export); upload it to the terminal.
 - `All Report.xls` – the terminal's attendance export (sheet *Attendance Logs*, minute precision). Read automatically when the USB is plugged in; punches mark present/late and notify students and parents. A punch already stored for the same minute is not added twice. `Attendance Logs*.txt` still works.
 - `001_UserInfo.dat` – fingerprint templates; only detected, never modified.
+
+## Leaving / taking over an advisory (real-time)
+- The adviser opens the class → **Students** tab → **Leave advisory** (`POST /api/sections/:id/leave`). The section stays; its subject teachers are notified.
+- Any teacher of the section then sees **Become adviser** (`POST /api/sections/:id/claim`, first one wins) and the others are told who took over.
+- Everything updates live: the Homeroom tab appears/disappears, the adviser chip, "my advisory" lists, the student Room/Messages roster and the teacher directory (realtime on `sections` and `section_subjects`).

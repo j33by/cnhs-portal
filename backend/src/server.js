@@ -171,7 +171,7 @@ app.post('/api/sections', teacherOnly, wrap(async (q, r) => {
     const { data: up, error: ue } = await sb.from('sections').update({ adviser_id: q.user.id, homeroom: homeroom || null }).eq('id', dup.id).select().single(); if (ue) throw ue; return r.json(up);
   }
   const { data: used } = await sb.from('sections').select('biometric_dept_no'); const taken = new Set(used.map(u => u.biometric_dept_no));
-  let dept = 1; while (taken.has(dept)) dept++; if (dept > 16) throw bad('The biometric device supports 16 departments');
+  let dept = 1; while (taken.has(dept)) dept++; if (dept > 16) dept = null;      // the terminal has only 16 departments: further sections still work, their students are listed under Dept. 1
   const { data, error } = await sb.from('sections').insert({ school_year_id: y.id, grade_level, name, homeroom, adviser_id: q.user.id, biometric_dept_no: dept }).select().single();
   if (error) throw error; r.json(data);
 }));
@@ -230,7 +230,11 @@ app.post('/api/usb/ingest', teacherOnly, up.fields([{ name: 'logs', maxCount: 1 
     if (rep.people.length) await sb.from('device_people').upsert(rep.people.map(p => ({ biometric_id: p.biometric_id, ...(p.name ? { name: p.name } : {}), last_seen: new Date().toISOString() })), { onConflict: 'biometric_id' });
     out.attendance = await ingestPunches(sb, rep.punches); out.report_people = rep.people.length; }
   if (q.files?.logs) out.attendance = await ingestLogs(sb, q.files.logs[0].buffer.toString('utf8'));
-  if (q.files?.employee) { const ppl = parseEmployeeForm(q.files.employee[0].buffer);
+  if (q.files?.employee) { let ppl = parseEmployeeForm(q.files.employee[0].buffer);
+    // the stick holds the form this app wrote earlier: people that are already our students (same ID and name) are not "found on the terminal"
+    const { data: mine } = await sb.from('students').select('biometric_id,first_name,last_name').not('biometric_id', 'is', null);
+    const own = new Map((mine || []).map(s => [s.biometric_id, cleanName(`${s.first_name} ${s.last_name}`)]));
+    ppl = ppl.filter(p => own.get(p.biometric_id) !== cleanName(p.name));
     if (ppl.length) await sb.from('device_people').upsert(ppl.map(p => ({ biometric_id: p.biometric_id, name: p.name, dept_no: p.dept_no, last_seen: new Date().toISOString() })), { onConflict: 'biometric_id' });
     out.device_people = ppl.length; out.linked = (await autoLinkByName(sb)).linked; }
   r.json(out); }));
@@ -251,14 +255,14 @@ app.get('/api/usb/employee-form', teacherOnly, wrap(async (_q, r) => {
   const prep = await prepareDevice(sb);                                    // link terminal people to students by name, give every other student a device ID
   const [{ data: st }, { data: se }, { data: sc }] = await Promise.all([
     sb.from('students').select('biometric_id,first_name,last_name,sections!section_id(biometric_dept_no)').eq('status', 'enrolled').not('biometric_id', 'is', null),
-    sb.from('sections').select('name,biometric_dept_no'),
+    sb.from('sections').select('name,grade_level,biometric_dept_no'),
     sb.from('schedules').select('day_of_week,start_time,end_time,sections(biometric_dept_no)')]);
   const { data: dev } = await sb.from('device_people').select('*');
   const linked = new Set(st.map(x => x.biometric_id));
   const people = [...(dev || []).filter(d => !linked.has(d.biometric_id)).map(d => ({ biometric_id: d.biometric_id, name: cleanName(d.name || ''), dept_no: d.dept_no })),
     ...st.map(s => ({ biometric_id: s.biometric_id, name: cleanName(`${s.first_name} ${s.last_name}`) || 'Student', dept_no: s.sections?.biometric_dept_no || null })),
     ].sort((a, b) => a.biometric_id - b.biometric_id);
-  const { buffer, shifts } = buildEmployeeForm({ people, sections: se.map(s => ({ dept_no: s.biometric_dept_no, name: s.name })),
+  const { buffer, shifts } = buildEmployeeForm({ people, sections: se.filter(s => s.biometric_dept_no).map(s => ({ dept_no: s.biometric_dept_no, name: `${s.grade_level}${s.name}` })),
     slots: sc.filter(s => s.sections).map(s => ({ dept_no: s.sections.biometric_dept_no, day_of_week: s.day_of_week, start: s.start_time.slice(0, 5), end: s.end_time.slice(0, 5) })), start: new Date() });
   const { data: stt } = await sb.from('usb_sync_state').select('version').eq('id', 1).single();
   r.set({ 'Content-Type': 'application/vnd.ms-excel', 'X-Sync-Version': String(stt.version), 'X-Shifts-Used': String(shifts.length), 'X-Students': String(st.length), 'X-People': String(people.length), 'X-Linked': String(prep.linked), 'X-Assigned': String(prep.assigned) }).send(buffer); }));

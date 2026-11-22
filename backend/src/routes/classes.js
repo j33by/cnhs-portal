@@ -144,9 +144,25 @@ module.exports = function mount(app, { sb, wrap, bad, teacherOnly, curYear }) {
   }));
 
 
+  // Teachers who teach a subject in the section (they are the ones who can take over the advisory)
+  const sectionTeachers = async (sectionId, except) => [...new Set(((await sb.from('section_subjects').select('teacher_id').eq('section_id', sectionId)).data || []).map(x => x.teacher_id).filter(t => t && t !== except))];
+  const secLabel = async id => { const { data } = await sb.from('sections').select('grade_level,name').eq('id', id).maybeSingle(); return data ? `Grade ${data.grade_level} ${data.name}` : 'the section'; };
+  const nameOf = async id => { const { data } = await sb.from('teacher_names').select('first_name,last_name').eq('id', id).maybeSingle(); return data ? `${data.first_name} ${data.last_name}`.trim() : 'A teacher'; };
+
   app.post('/api/sections/:id/claim', teacherOnly, wrap(async (q, r) => {                      // become the adviser of a section that has none
     const { data } = await sb.from('sections').update({ adviser_id: q.user.id }).eq('id', q.params.id).is('adviser_id', null).select('id');
-    if (!data?.length) throw bad('This section already has an adviser.', 409); r.json({ ok: true });
+    if (!data?.length) throw bad('This section already has an adviser.', 409);
+    const [label, who] = await Promise.all([secLabel(q.params.id), nameOf(q.user.id)]);
+    await notify(sb, await sectionTeachers(q.params.id, q.user.id), { kind: 'section', title: `${who} is now the adviser`, body: `${label} has a new adviser`, data: { section_id: q.params.id } }).catch(() => {});
+    r.json({ ok: true });
+  }));
+  // The adviser steps down. The section stays; its subject teachers are told and one of them can take over.
+  app.post('/api/sections/:id/leave', teacherOnly, wrap(async (q, r) => {
+    const { data } = await sb.from('sections').update({ adviser_id: null }).eq('id', q.params.id).eq('adviser_id', q.user.id).select('id');
+    if (!data?.length) throw bad('You are not the adviser of this section.', 403);
+    const [label, who] = await Promise.all([secLabel(q.params.id), nameOf(q.user.id)]);
+    await notify(sb, await sectionTeachers(q.params.id, q.user.id), { kind: 'section', title: `${label} needs an adviser`, body: `${who} left the advisory. Open the class and tap "Become adviser" to take over.`, data: { section_id: q.params.id } }).catch(() => {});
+    r.json({ ok: true });
   }));
 
   // ---- Subject attendance (per class, per date) + absence rule

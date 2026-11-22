@@ -84,7 +84,18 @@ async function ensureBioIds(sb) {
 }
 
 // everything the form needs, in the order that avoids duplicate people on the terminal
+// Every section is one terminal department (1-16): give each section that has none the lowest free number.
+async function ensureDepts(sb) {
+  const { data: se } = await sb.from('sections').select('id,biometric_dept_no').order('created_at');
+  const used = new Set((se || []).map(s => s.biometric_dept_no).filter(Boolean)); let n = 0;
+  for (const s of (se || []).filter(s => !s.biometric_dept_no)) {
+    let d = 1; while (used.has(d) && d <= 16) d++; if (d > 16) break;
+    const { error } = await sb.from('sections').update({ biometric_dept_no: d }).eq('id', s.id); if (!error) { used.add(d); n++; } }
+  return n;
+}
+
 async function prepare(sb) {
+  await ensureDepts(sb);
   const a = await autoLinkByName(sb), b = await ensureBioIds(sb);
   return { linked: a.linked, assigned: b.assigned };
 }
