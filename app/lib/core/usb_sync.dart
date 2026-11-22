@@ -29,6 +29,7 @@ class UsbSync extends ChangeNotifier {
   final Set<String> _backedUp = {};
 
   static final logRe = RegExp(r'^attendance[ _]*logs.*\.txt$', caseSensitive: false);
+  static final reportRe = RegExp(r'^all[ _]*report.*\.xls$', caseSensitive: false);   // the terminal's own attendance export
   static final formRe = RegExp(r'^employee[ _]*form.*\.xls$', caseSensitive: false);
   static final datRe = RegExp(r'userinfo\.dat$', caseSensitive: false);
   static const defaultFormName = 'Employee Form.xls';    // what the terminal's own export is called
@@ -46,7 +47,7 @@ class UsbSync extends ChangeNotifier {
   List<File> _files(Directory d) {
     try { return d.listSync().whereType<File>().toList(); } catch (_) { return []; }
   }
-  bool _isTerminalFile(File f) { final n = p.basename(f.path); return logRe.hasMatch(n) || formRe.hasMatch(n) || datRe.hasMatch(n); }
+  bool _isTerminalFile(File f) { final n = p.basename(f.path); return logRe.hasMatch(n) || reportRe.hasMatch(n) || formRe.hasMatch(n) || datRe.hasMatch(n); }
 
   /// Letters of removable drives (USB sticks). Asked from Windows only when the set of drive letters changed.
   Future<void> _refreshRemovable() async {
@@ -71,7 +72,7 @@ class UsbSync extends ChangeNotifier {
     }
     return firstRemovable;                               // e.g. a new, empty USB stick
   }
-  List<File> _logs(Directory d) => _files(d).where((f) => logRe.hasMatch(p.basename(f.path))).toList();
+  List<File> _logs(Directory d) => _files(d).where((f) => logRe.hasMatch(p.basename(f.path)) || reportRe.hasMatch(p.basename(f.path))).toList();
   File? _form(Directory d) {
     final fs = _files(d).where((f) => formRe.hasMatch(p.basename(f.path))).toList();
     if (fs.isEmpty) return null;
@@ -120,7 +121,7 @@ class UsbSync extends ChangeNotifier {
       }
       var files = 0, punches = 0, newPunches = 0;
       for (final f in _logs(d)) {                        // 2) all log files; duplicates are ignored by the server
-        final r = await _ingest({'logs': await f.readAsBytes()}, p.basename(f.path));
+        final r = await _ingest({(reportRe.hasMatch(p.basename(f.path)) ? 'report' : 'logs'): await f.readAsBytes()}, p.basename(f.path));
         final a = r['attendance'] is Map ? r['attendance'] as Map : const {};
         punches += (a['punches'] as num?)?.toInt() ?? 0; newPunches += (a['newPunches'] as num?)?.toInt() ?? 0;
         _seen[f.path] = _sig(f); files++;
