@@ -25,7 +25,7 @@ class TeacherData extends ChangeNotifier {
     void on(Stream<dynamic> s) => _subs.add(s.listen((_) => _soon(), onError: (_) {}));
     on(liveStream('section_subjects|teacher_id=${uid}', () => sb.from('section_subjects').stream(primaryKey: ['section_id', 'subject_id']).eq('teacher_id', uid)));
     on(liveStream('schedules|teacher_id=${uid}', () => sb.from('schedules').stream(primaryKey: ['id']).eq('teacher_id', uid)));
-    on(liveStream('sections|adviser_id=${uid}', () => sb.from('sections').stream(primaryKey: ['id']).eq('adviser_id', uid)));
+    on(liveStream('sections|all', () => sb.from('sections').stream(primaryKey: ['id'])));      // all sections: also fires when I stop being an adviser (a filtered stream would not)
   }
 
   void stop() {

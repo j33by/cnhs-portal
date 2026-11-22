@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/api.dart';
@@ -23,10 +24,16 @@ class _ClassStudentsState extends State<ClassStudentsTab> {
   Map<String, int> absences = {};
   int free = 10;
 
+  StreamSubscription? _secSub;
   @override
-  void initState() { super.initState(); _loadExtras(); }
+  void initState() {
+    super.initState(); _loadExtras();
+    // live: adviser left / another teacher took over -> the header updates for everybody looking at this section
+    _secSub = liveStream('sec-hdr|${widget.sectionId}', () => sb.from('sections').stream(primaryKey: ['id']).eq('id', widget.sectionId)).listen((_) { if (mounted) { _loadExtras(); } }, onError: (_) {});
+  }
   @override
-  void dispose() { search.dispose(); super.dispose(); }
+  void dispose() { _secSub?.cancel(); search.dispose(); super.dispose(); }
+  bool get _isAdv => section != null ? section!['adviser_id'] == sb.auth.currentUser?.id : widget.isAdviser;
 
   Future<void> _loadExtras() async {
     try {
@@ -54,6 +61,15 @@ class _ClassStudentsState extends State<ClassStudentsTab> {
 
   Future<void> _claim() async {
     try { await Api.post('/api/sections/${widget.sectionId}/claim'); toast('You are now the adviser of this section'); await _loadExtras(); } catch (e) { toastError(e); }
+  }
+
+  Future<void> _leave() async {
+    final ok = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
+      title: const Text('Leave this advisory?'),
+      content: const Text('You will no longer be the adviser of this section. You keep teaching your subject. Another teacher of the section can then become the adviser, and you can take it back only if nobody else has.'),
+      actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Leave advisory'))]));
+    if (ok != true) { return; }
+    try { await Api.post('/api/sections/${widget.sectionId}/leave'); toast('You left the advisory of this section'); await _loadExtras(); } catch (e) { toastError(e); }
   }
 
   String _name(Map<String, dynamic> x) => '${x['last_name']}, ${x['first_name']}${(x['middle_name'] ?? '').toString().isEmpty ? '' : ' ${x['middle_name']}'}';
@@ -120,7 +136,7 @@ class _ClassStudentsState extends State<ClassStudentsTab> {
         Expanded(child: Text(section == null ? '' : 'Grade ${section!['grade_level']} · ${section!['name']}${(section!['homeroom'] ?? '').toString().isEmpty ? '' : ' · Room ${section!['homeroom']}'}', style: Theme.of(context).textTheme.titleSmall)),
         if (adviserId != null) Chip(visualDensity: VisualDensity.compact, avatar: const Icon(Icons.school, size: 16), label: Text(adviserId == myId ? 'You are the adviser' : 'Adviser: ${adviserName ?? ''}', style: const TextStyle(fontSize: 12))),
       ]),
-      if (widget.isAdviser) Padding(padding: const EdgeInsets.only(top: 8), child: Align(alignment: Alignment.centerLeft, child: FilledButton.tonalIcon(onPressed: _addStudent, icon: const Icon(Icons.person_add), label: const Text('Add student by ID')))),
+      if (_isAdv) Padding(padding: const EdgeInsets.only(top: 8), child: Wrap(spacing: 8, runSpacing: 4, children: [FilledButton.tonalIcon(onPressed: _addStudent, icon: const Icon(Icons.person_add), label: const Text('Add student by ID')), OutlinedButton.icon(onPressed: _leave, icon: const Icon(Icons.logout), label: const Text('Leave advisory'))])),
       const SizedBox(height: 8),
       TextField(controller: search, onChanged: (_) => setState(() {}), decoration: InputDecoration(isDense: true, prefixIcon: const Icon(Icons.search), border: const OutlineInputBorder(),
           hintText: 'Search $total student${total == 1 ? '' : 's'} by name or ID', suffixIcon: search.text.isEmpty ? null : IconButton(icon: const Icon(Icons.close), onPressed: () => setState(search.clear)))),
@@ -151,7 +167,7 @@ class _ClassStudentsState extends State<ClassStudentsTab> {
                       return ListTile(
                         leading: CircleAvatar(backgroundImage: photo != null ? CachedNetImage(photo) : null, child: photo == null ? Text('${x['first_name']}'.isEmpty ? '?' : '${x['first_name']}'[0]) : null),
                         title: Text(_name(x)), subtitle: Text('ID ${x['student_no']}  ·  ${x['sex'] == 'M' ? 'Male' : 'Female'}${x['age'] != null ? '  ·  ${x['age']} yrs' : ''}'),
-                        trailing: widget.isAdviser
+                        trailing: _isAdv
                             ? Row(mainAxisSize: MainAxisSize.min, children: [
                                 if (a > 0) standingChip(a, free),
                                 PopupMenuButton<String>(onSelected: (v) => _menu(x, v), itemBuilder: (_) => const [

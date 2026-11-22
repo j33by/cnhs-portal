@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'api.dart';
@@ -44,7 +45,16 @@ class ChatData {
     return r ?? <String, dynamic>{};
   }
   /// Fires when teaching assignments change, so the teacher lists refresh by themselves.
-  static Stream<JRows> assignmentChanges() => liveStream('section_subjects|all', () => sb.from('section_subjects').stream(primaryKey: ['section_id', 'subject_id']));
+  /// Fires when teachers are assigned to a section OR a section's adviser changes (leave / take over): rosters and directories refresh at once.
+  static Stream<JRows> assignmentChanges() {
+    final a = liveStream('section_subjects|all', () => sb.from('section_subjects').stream(primaryKey: ['section_id', 'subject_id']));
+    final b = liveStream('sections|all', () => sb.from('sections').stream(primaryKey: ['id']));
+    late StreamController<JRows> c; StreamSubscription<JRows>? s1, s2;
+    c = StreamController<JRows>(
+      onListen: () { s1 = a.listen(c.add, onError: (_) {}); s2 = b.listen(c.add, onError: (_) {}); },
+      onCancel: () async { await s1?.cancel(); await s2?.cancel(); });
+    return c.stream;
+  }
   static Future<String> openStaff(String sectionId) async => '${(await Api.post('/api/chat/staff', {'section_id': sectionId}))['id']}';
 
   static Future<String> openGroup() async => '${(await Api.post('/api/chat/group'))['id']}';

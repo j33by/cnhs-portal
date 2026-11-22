@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../core/api.dart';
@@ -20,10 +21,11 @@ class _MessagesScreenState extends State<MessagesScreen> with SingleTickerProvid
   Map<String, dynamic> roster = {};
   String? groupId; bool groupFailed = false;
 
+  StreamSubscription<dynamic>? _live;
   @override
-  void initState() { super.initState(); _loadRoster(); _openGroup(); }
+  void initState() { super.initState(); _loadRoster(); _openGroup(); _live = ChatData.assignmentChanges().listen((_) => _loadRoster(), onError: (_) {}); }
   @override
-  void dispose() { tc.dispose(); super.dispose(); }
+  void dispose() { _live?.cancel(); tc.dispose(); super.dispose(); }
 
   Future<void> _loadRoster() async { try { final r = await ChatData.roster(); if (mounted) { setState(() => roster = r); } } catch (_) {} }
   Future<void> _openGroup() async {

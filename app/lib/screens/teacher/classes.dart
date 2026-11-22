@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../core/api.dart';
 import '../../core/messenger.dart';
@@ -183,21 +184,44 @@ class _MyClassesState extends State<MyClasses> {
       });
 }
 
-class ClassScreen extends StatelessWidget {
+class ClassScreen extends StatefulWidget {
   final String sectionId, subjectId, title; final int term; final bool isAdviser; final VoidCallback? onRemoved;
   const ClassScreen({super.key, required this.sectionId, required this.subjectId, required this.title, required this.term, this.isAdviser = false, this.onRemoved});
   ClassScreen.from(Map<String, dynamic> c, {super.key, this.onRemoved})
       : sectionId = c['section_id'] as String, subjectId = c['subject_id'] as String, title = classTitle(c), term = (c['term'] as int?) ?? 1, isAdviser = c['adviser'] == true;
+  @override
+  State<ClassScreen> createState() => _ClassScreenState();
+}
+
+class _ClassScreenState extends State<ClassScreen> {
+  late bool _adv = widget.isAdviser;
+  StreamSubscription? _sub;
 
   @override
-  Widget build(BuildContext c) => DefaultTabController(
+  void initState() {
+    super.initState();
+    // live: when the adviser leaves or another teacher takes over, the Homeroom tab appears/disappears right away
+    _sub = liveStream('sec-adv|${widget.sectionId}', () => sb.from('sections').stream(primaryKey: ['id']).eq('id', widget.sectionId)).listen((rows) {
+      if (rows.isEmpty) { return; }
+      final mine = rows.first['adviser_id'] == sb.auth.currentUser?.id;
+      if (mine != _adv && mounted) { setState(() => _adv = mine); }
+    }, onError: (_) {});
+  }
+  @override
+  void dispose() { _sub?.cancel(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext c) {
+    final isAdviser = _adv;
+    return DefaultTabController(
+        key: ValueKey(isAdviser),
         length: isAdviser ? 6 : 5,
         child: Scaffold(
           appBar: AppBar(
-            title: Text(title, style: const TextStyle(fontSize: 16)),
-            actions: [IconButton(tooltip: 'Room', icon: const Icon(Icons.meeting_room_outlined), onPressed: () => pushOnce(c, MaterialPageRoute(builder: (_) => RoomScreen(sectionId: sectionId)))), PopupMenuButton<String>(
+            title: Text(widget.title, style: const TextStyle(fontSize: 16)),
+            actions: [IconButton(tooltip: 'Room', icon: const Icon(Icons.meeting_room_outlined), onPressed: () => pushOnce(c, MaterialPageRoute(builder: (_) => RoomScreen(sectionId: widget.sectionId)))), PopupMenuButton<String>(
               onSelected: (v) async {
-                if (v == 'remove' && await removeClass(c, sectionId, subjectId, title)) { if (onRemoved != null) { onRemoved!(); } else if (c.mounted) { Navigator.pop(c); } }
+                if (v == 'remove' && await removeClass(c, widget.sectionId, widget.subjectId, widget.title)) { if (widget.onRemoved != null) { widget.onRemoved!(); } else if (c.mounted) { Navigator.pop(c); } }
               },
               itemBuilder: (_) => const [PopupMenuItem(value: 'remove', child: Text('Remove class'))],
             )],
@@ -207,13 +231,14 @@ class ClassScreen extends StatelessWidget {
             ]),
           ),
           body: TabBarView(children: [
-            KeepTabAlive(child: ClassStudentsTab(sectionId: sectionId, subjectId: subjectId, isAdviser: isAdviser)),
-            KeepTabAlive(child: RecordTab(sectionId: sectionId, subjectId: subjectId, initialTerm: term)),
-            KeepTabAlive(child: AttendanceTab(sectionId: sectionId, subjectId: subjectId)),
-            KeepTabAlive(child: GradesTab(sectionId: sectionId, subjectId: subjectId, initialTerm: term)),
-            KeepTabAlive(child: ClassScheduleTab(sectionId: sectionId, subjectId: subjectId)),
-            if (isAdviser) KeepTabAlive(child: HomeroomTab(sectionId: sectionId)),
+            KeepTabAlive(child: ClassStudentsTab(sectionId: widget.sectionId, subjectId: widget.subjectId, isAdviser: isAdviser)),
+            KeepTabAlive(child: RecordTab(sectionId: widget.sectionId, subjectId: widget.subjectId, initialTerm: widget.term)),
+            KeepTabAlive(child: AttendanceTab(sectionId: widget.sectionId, subjectId: widget.subjectId)),
+            KeepTabAlive(child: GradesTab(sectionId: widget.sectionId, subjectId: widget.subjectId, initialTerm: widget.term)),
+            KeepTabAlive(child: ClassScheduleTab(sectionId: widget.sectionId, subjectId: widget.subjectId)),
+            if (isAdviser) KeepTabAlive(child: HomeroomTab(sectionId: widget.sectionId)),
           ]),
         ),
       );
+  }
 }
