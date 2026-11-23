@@ -111,7 +111,7 @@ class UsbSync extends ChangeNotifier {
   /// Full two-way sync: stick -> database, then database -> stick.
   Future<void> syncNow() async {
     final d = _findStick(); if (d == null) return;
-    state = UsbState.syncing; message = 'Syncing…'; detail = ''; notifyListeners();
+    state = UsbState.syncing; message = 'Syncing… please do not remove the USB'; detail = ''; notifyListeners();
     try {
       final notes = <String>[];
       final form = _form(d);
@@ -129,7 +129,7 @@ class UsbSync extends ChangeNotifier {
       if (files > 0) notes.insert(0, '$newPunches new punch${newPunches == 1 ? '' : 'es'} read from $files log file${files == 1 ? '' : 's'}${newPunches > 0 ? ' · students and parents notified' : ''}');
       final wrote = await _writeForm(throwOnError: true);   // 3) every student -> Employee Form.xls on the stick
       if (wrote != null) { notes.add(wrote); }
-      state = UsbState.connected; lastSync = DateTime.now(); message = 'Synced ${d.path}'; detail = notes.join('\n');
+      state = UsbState.connected; lastSync = DateTime.now(); message = 'Synced ${d.path} · safe to remove the USB'; detail = notes.join('\n');
     } catch (e) { state = UsbState.error; message = 'Sync failed: ${errorText(e)}'; _retryAt = DateTime.now().add(const Duration(seconds: 30)); }
     notifyListeners();
   }
@@ -139,6 +139,11 @@ class UsbSync extends ChangeNotifier {
     dynamic body; try { body = jsonDecode(res.body); } catch (_) { body = null; }
     if (res.statusCode >= 400) throw ApiException('Upload of $name failed: ${(body is Map ? body['error'] : null) ?? 'server error ${res.statusCode}'}', res.statusCode);
     return body is Map ? Map<String, dynamic>.from(body) : <String, dynamic>{};
+  }
+
+  /// Ask Windows to write everything cached to the stick (best effort: needs no admin on most PCs; ignored when refused).
+  Future<void> _flushDrive(Directory d) async {
+    try { await Process.run('powershell', ['-NoProfile', '-NonInteractive', '-Command', 'Write-VolumeCache -DriveLetter ${d.path[0]}']).timeout(const Duration(seconds: 15)); } catch (_) {}
   }
 
   /// Rewrite the student list on the stick. Returns a short description of what was written (null when there is no stick).
@@ -158,13 +163,15 @@ class UsbSync extends ChangeNotifier {
       }
       try { await File(target).writeAsBytes(r.bodyBytes, flush: true); }
       on FileSystemException catch (e) { throw ApiException('Could not write ${p.basename(target)} to ${d.path} (${e.osError?.message ?? e.message}). Is the stick locked or full?'); }
-      if (!File(target).existsSync() || File(target).lengthSync() < 1000) { throw ApiException('The file on the stick looks incomplete. Try again.'); }
+      final back = await File(target).readAsBytes();      // read it back: the stick must hold exactly what we wrote
+      if (back.length != r.bodyBytes.length || back.length < 1000) { throw ApiException('The file on the stick looks incomplete. Try again.'); }
+      await _flushDrive(d);                                // push Windows' write cache to the stick so it can be pulled out safely
       await Api.post('/api/usb/written', {'version': int.tryParse(r.headers['x-sync-version'] ?? '0') ?? 0});
       final students = r.headers['x-students'] ?? '?', people = r.headers['x-people'] ?? '?', assigned = int.tryParse(r.headers['x-assigned'] ?? '0') ?? 0;
       lastSync = DateTime.now();
       final msg = '$students student${students == '1' ? '' : 's'} written to ${p.basename(target)} (${people == students ? 'all' : '$people people incl. others already on the terminal'})${assigned > 0 ? ' · $assigned new device ID${assigned == 1 ? '' : 's'} given' : ''}';
       detail = detail.isEmpty ? msg : '$detail\n$msg';
-      if (state != UsbState.syncing) { message = 'Student list updated on ${d.path}'; }
+      if (state != UsbState.syncing) { message = 'Student list updated on ${d.path} · safe to remove the USB'; }
       notifyListeners();
       return msg;
     } catch (e) {
