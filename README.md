@@ -145,3 +145,6 @@ The terminal's files have **spaces, no underscores**: `Employee Form.xls`, `All 
 
 ## Parents: remove a child from the list
 Long-press a child's name in the bar at the top of Home / Attendance / Grades → **Remove** → confirm. `DELETE /api/parent/links/:student_id` deletes the link (alerts for that child stop at once; viewing the child again needs a new link request approved by a teacher). The bar now also shows with a single child so it can be removed.
+
+## Safe to remove the USB
+While syncing the app shows "do not remove the USB". After writing `Employee Form.xls` it reads the file back, checks it matches, asks Windows to flush its write cache (`Write-VolumeCache`), and only then shows "safe to remove the USB". Pulling the stick earlier is what makes Windows offer "Scan and fix". Still use "Safely remove hardware" on the terminal side.
